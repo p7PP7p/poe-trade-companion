@@ -1,0 +1,91 @@
+{
+  "manifest_version": 3,
+  "name": "PoE Trade Companion — 市集增强",
+  "version": "0.3.1",
+  "description": "流放之路国际服官方市集增强：价格统计、快速估价、收藏降价追踪、一键复制私聊文本，并汉化市集筛选面板、查询结果与装备词缀。",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "clipboardWrite",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.pathofexile.com/*",
+    "https://poe.ninja/*",
+    "https://raw.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.pathofexile.com/trade*"
+      ],
+      "js": [
+        "lib/i18n-dict.js",
+        "content/inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.pathofexile.com/trade*"
+      ],
+      "js": [
+        "lib/i18n-dict.js",
+        "lib/selectors.js",
+        "lib/price-utils.js",
+        "lib/item-parser.js",
+        "lib/query-builder.js",
+        "lib/rate-limiter.js",
+        "lib/remote-config.js",
+        "lib/stats-dict.js",
+        "content/estimator.js",
+        "content/panel.js",
+        "content/content.js",
+        "content/localizer.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "PoE Trade Companion",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_page": "options/options.html",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/style.css",
+        "content/inject.js",
+        "icons/icon16.png",
+        "icons/icon48.png",
+        "icons/icon128.png",
+        "lib/i18n-dict.js",
+        "content/localizer.js",
+        "config/i18n-zh.json",
+        "config/i18n-stats-zh.json"
+      ],
+      "matches": [
+        "https://www.pathofexile.com/*"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>PoE Trade Companion — 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">P</div>
+      <div>
+        <h1>PoE Trade Companion</h1>
+        <div class="tagline">流放之路国际服官方市集增强 · Manifest V3 · 本地运行、无远端服务器</div>
+      </div>
+    </div>
+
+    <h2>价格与追踪</h2>
+    <div class="card">
+      <div class="grid">
+        <div class="field">
+          <label class="name" for="divineToChaos">divine → chaos 汇率</label>
+          <input type="number" id="divineToChaos" min="0" max="100000" step="1" placeholder="0 表示自动获取" />
+          <div class="desc">填 0 时自动读取 poe.ninja 汇率（缓存 6 小时）；填具体数值则以手动值为准。</div>
+        </div>
+        <div class="field">
+          <label class="name" for="alertThreshold">降价提醒阈值（%）</label>
+          <input type="number" id="alertThreshold" min="1" max="90" step="1" />
+          <div class="desc">收藏物品现价低于收藏价该比例时发送系统通知，同一物品 30 分钟内不重复提醒。</div>
+        </div>
+        <div class="field">
+          <label class="name" for="scanInterval">自动检查间隔（分钟）</label>
+          <input type="number" id="scanInterval" min="1" max="120" step="1" />
+          <div class="desc">后台定时检查收藏价格，范围 1–120 分钟。调小会更频繁地请求官方接口。</div>
+        </div>
+        <div class="field">
+          <label class="name" for="sidebarWidth">侧栏宽度（px）</label>
+          <input type="number" id="sidebarWidth" min="320" max="720" step="10" />
+          <div class="desc">面板默认宽度，320–720 之间，超出会被自动收敛。</div>
+        </div>
+        <div class="field full">
+          <label class="name" for="shortcut">唤起面板快捷键</label>
+          <input type="text" id="shortcut" placeholder="Ctrl+Shift+E" />
+          <div class="desc">形如 <code>Ctrl+Shift+E</code>、<code>Alt+P</code>；在非输入框内按下即触发，留空则关闭快捷键。</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>界面行为</h2>
+    <div class="card">
+      <div class="row">
+        <div class="txt">
+          <div>行内价格增强</div>
+          <div class="desc">在每条搜索结果行内注入中位价徽标，并标注相对中位数的偏离度（绿=更便宜，红=更贵）。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="inlineBadge" /><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="txt">
+          <div>浮动入口球</div>
+          <div class="desc">页面右下角圆形按钮，可拖动，点击展开侧栏。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="floatingBall" /><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="txt">
+          <div>启用侧栏面板</div>
+          <div class="desc">关闭后仅保留行内增强，不再注入侧栏与浮动球。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="sidebarEnabled" /><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="txt">
+          <div>进入页面自动展开</div>
+          <div class="desc">打开市集搜索结果页时直接展开侧栏。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="autoExpand" /><span class="track"></span></label>
+      </div>
+    </div>
+
+    <h2>赛季自适应配置</h2>
+    <div class="card">
+      <div class="field">
+        <label class="name" for="remoteConfigUrl">远端配置文件 URL</label>
+        <input type="text" id="remoteConfigUrl" placeholder="https://raw.githubusercontent.com/..." />
+        <div class="desc">
+          该 JSON 用于赛季改版后热更新选择器与接口路径，无需重新发布扩展。拉取失败时静默回退内置默认值，不影响使用。
+          留空可关闭远端配置。
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btnTest">测试拉取</button>
+        <button id="btnClearCache">清空汇率与配置缓存</button>
+      </div>
+    </div>
+
+    <h2>页面汉化</h2>
+    <div class="card">
+      <div class="row">
+        <div class="txt">
+          <div>启用官网市集汉化</div>
+          <div class="desc">把筛选器面板、下拉选项、物品类别、结果行状态词、价格单位与按钮文案替换为中文；关闭后立即还原英文，不修改页面结构。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="zhEnabled" /><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="txt">
+          <div>数据层汉化（筛选器词条）</div>
+          <div class="desc">拦截 /api/trade/data/* 响应并改写其中的 text 字段，筛选器与下拉选项直接从数据源头变为中文，赛季新增词条也能覆盖。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="zhDataHook" /><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="txt">
+          <div>正则模板翻译（动态文案）</div>
+          <div class="desc">用于「Listed 3 days ago」这类带变量的文本，按模板转成「上架 3 天前」；关闭后只做整词精确匹配。</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="zhPatterns" /><span class="track"></span></label>
+      </div>
+      <div class="field">
+        <label class="name" for="zhLevel">汉化范围</label>
+        <select id="zhLevel">
+          <option value="ui">仅界面文案（筛选器、状态词、按钮）</option>
+          <option value="full">界面文案 + 物品名称与词缀</option>
+        </select>
+        <div class="desc">「仅界面文案」只翻译操作相关文本，物品名与词缀保留英文，便于按英文名检索与站外比对。数据层失效时页面层仍可兜底。</div>
+      </div>
+      <div class="field">
+        <label class="name" for="zhUserDict">自定义词库</label>
+        <textarea id="zhUserDict" rows="6" spellcheck="false" placeholder="每行一条：英文原文=中文译名&#10;例如：Mirrored Item=镜像物品"></textarea>
+        <div class="desc">每行一条「英文=中文」，优先级高于内置与远端词库，用于修正或补充官方页面新词条；单条英文 ≤120 字符、中文 ≤200 字符，不支持 HTML 标签。</div>
+        <div class="btnbar">
+          <button class="btn primary" id="zhSaveDict" type="button">保存自定义词库</button>
+          <button class="btn" id="zhClearDict" type="button">清空词库</button>
+          <button class="btn" id="zhRestoreNow" type="button">在当前页面立即还原英文</button>
+        </div>
+        <div class="desc" id="zhDictStat">自定义词库：0 条</div>
+        <div class="desc" id="zhDictMsg"></div>
+      </div>
+      <div class="desc" id="i18nStat">内置词库：加载中…</div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="btnSave">保存设置</button>
+      <button id="btnReset">恢复默认</button>
+    </div>
+
+    <div id="status">修改后请点击「保存设置」，并刷新市集页面使界面配置生效。</div>
+
+    <h2>使用说明</h2>
+    <div class="card">
+      <ul>
+        <li><b>价格增强</b>：打开任意搜索结果页（<code>/trade/search/&lt;联赛&gt;</code>），每行价格旁会显示该批次检索结果的中位价与相对偏离度。</li>
+        <li><b>快速估价</b>：侧栏「估价」页粘贴物品文本（游戏内 <code>Ctrl+C</code> 复制物品），点击估价，扩展会构建检索条件、拉取样例并给出中位价与建议挂单价。</li>
+        <li><b>收藏追踪</b>：在搜索结果行点击 <code>☆</code> 收藏，扩展会记录当时的查询与价格；后台按间隔复查，价格跌到阈值时发通知。</li>
+        <li><b>一键私聊</b>：每行提供复制按钮，将官方 whisper 文本写入剪贴板，进游戏粘贴即可，无需手动拼接。</li>
+      </ul>
+    </div>
+
+    <h2>合规与免责</h2>
+    <div class="card">
+      <ul>
+        <li>本扩展为<b>只读辅助工具</b>：仅调用官方市集页面本身使用的公开 HTTP 接口，不注入交易机器人，不自动发送交易请求，不修改游戏客户端。</li>
+        <li>所有数据保存在浏览器本地（<code>chrome.storage</code>），不上传任何个人信息，不包含统计埋点。</li>
+        <li>请求频率通过内置限流器约束（尊重 <code>X-Rate-Limit</code> 响应头），请勿将检查间隔调至极小值，以免触发官方接口限速或账号风控。</li>
+        <li>使用第三方工具存在账号风险，请自行评估并遵守 <a href="https://www.pathofexile.com/legal/terms-of-use" target="_blank" rel="noopener">官方服务条款</a>。</li>
+      </ul>
+    </div>
+
+    <div class="footer">PoE Trade Companion · 版本 <span id="ver">-</span> · 与 GGG / Grinding Gear Games 无关联</div>
+  </div>
+
+  <script src="../lib/i18n-dict.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

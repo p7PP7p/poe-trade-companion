@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>PoE Trade Companion</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="ptc-update-banner" id="updateBanner" hidden>
+    插件有新版本，请更新（当前 v<span id="updateCurrent">-</span>，最新 v<span id="updateLatest">-</span>）
+  </div>
+
+  <div class="head">
+    <div class="logo">P</div>
+    <div class="head-text">
+      <div class="title">PoE Trade Companion</div>
+      <div class="sub" id="leagueLine">联赛：Standard</div>
+    </div>
+    <div class="ver" id="version">v-</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <span class="k">今日增强</span>
+      <span class="v gold" id="todayCount">0</span>
+    </div>
+    <div class="stat">
+      <span class="k">收藏</span>
+      <span class="v" id="watchCount">0</span>
+    </div>
+    <div class="stat">
+      <span class="k">降价提醒</span>
+      <span class="v green" id="alertCount">0</span>
+    </div>
+    <div class="stat">
+      <span class="k">D:C</span>
+      <span class="v" id="rateValue">-</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">功能开关</div>
+    <div class="row">
+      <div>
+        <div class="row-label">行内价格增强</div>
+        <div class="row-desc">在搜索结果行显示中位价与偏离度</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="toggleInline" /><span class="track"></span></label>
+    </div>
+    <div class="row">
+      <div>
+        <div class="row-label">浮动入口球</div>
+        <div class="row-desc">右下角圆形按钮，点击展开侧栏</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="toggleBall" /><span class="track"></span></label>
+    </div>
+    <div class="row">
+      <div>
+        <div class="row-label">自动展开侧栏</div>
+        <div class="row-desc">进入市集页时直接展开面板</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="toggleAuto" /><span class="track"></span></label>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button class="primary" id="btnOpenTrade">打开市集</button>
+    <button id="btnCheck">立即检查收藏</button>
+    <button id="btnRate">刷新汇率</button>
+    <button id="btnOptions">设置</button>
+  </div>
+
+  <div class="foot" id="status">就绪</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
