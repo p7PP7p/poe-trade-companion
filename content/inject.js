@@ -163,7 +163,91 @@
     if (i18nConfig.statsDictLoaded) markStatsReady();
   }
 
+  // 分词组合兜底（v0.3.2）：下拉项多为「已知词条 + 已知词条」拼成，如
+  // "One-Handed melee Weapon"、"Any Dagger"、"Claws (Claw)"、"Damage / 100%"。
+  // 纪律：任一单词未命中即整体放弃（保留英文原样），绝不产出半中半英。
+  const SEG_SPLIT = /([A-Za-z][A-Za-z'\u2019\-]*)/;
+
+  function mapSep(sep) {
+    const t = String(sep || '').replace(/[\s\u00a0]+/g, ' ').trim();
+    if (!t) return '';
+    let out = '';
+    for (let i = 0; i < t.length; i += 1) {
+      const c = t.charAt(i);
+      if (c === '(') out += '（';
+      else if (c === ')') out += '）';
+      else if (c === ':') out += '：';
+      else if (c === ',') out += '，';
+      else if (c === ';') out += '；';
+      else if (c === '!') out += '！';
+      else if (c === '?') out += '？';
+      else out += c;
+    }
+    if (/^[\/\d%+\-]/.test(t)) out = ' ' + out;
+    return out;
+  }
+
+  function pickDict(phrase) {
+    const v = i18nConfig.dict[phrase];
+    if (v !== undefined) return v;
+    const lv = i18nConfig.dictLower[phrase.toLowerCase()];
+    return lv === undefined ? null : lv;
+  }
+
+  function segmentTranslate(core) {
+    if (!core || core.length > 64) return null;
+    const parts = core.split(SEG_SPLIT);
+    const words = [];
+    const seps = [];
+    let buf = '';
+    for (let i = 0; i < parts.length; i += 1) {
+      const seg = parts[i];
+      if (seg === '') continue;
+      if (i % 2 === 0) {
+        buf += seg;
+      } else {
+        seps.push(buf);
+        buf = '';
+        words.push(seg);
+      }
+    }
+    seps.push(buf);
+    if (!words.length || words.length > 8 || seps.length !== words.length + 1) return null;
+
+    const picks = [];
+    let idx = 0;
+    while (idx < words.length) {
+      let hit = null;
+      let used = 0;
+      for (let len = Math.min(5, words.length - idx); len >= 1; len -= 1) {
+        const phrase = words.slice(idx, idx + len).join(' ');
+        let v = pickDict(phrase);
+        if (v === null && len === 1) v = pickDict(phrase + 's');
+        if (v !== null) {
+          hit = v;
+          used = len;
+          break;
+        }
+      }
+      if (hit === null) return null;
+      picks.push(hit);
+      idx += used;
+    }
+    if (picks.length !== words.length) return null;
+
+    let out = '';
+    for (let w = 0; w < words.length; w += 1) {
+      out += mapSep(seps[w]) + picks[w];
+    }
+    out += mapSep(seps[words.length]);
+    if (!out || out === core) return null;
+    if (/[A-Za-z]{2,}/.test(out)) return null;
+    return out;
+  }
+
   function translateText(text) {
+    // 价格备注 / 私聊语法里的 "~price"、"~b/o" 属于机器标记，不译
+    if (String(text).indexOf('~') >= 0) return null;
     if (!i18nConfig.enabled) return null;
     const core = String(text).replace(/[\s\u00a0]+/g, ' ').trim();
     if (!core) return null;
@@ -198,12 +282,13 @@
         return out;
       }
     }
-    return null;
+    // 最后一层：分词组合兜底（全部单词命中才输出，否则保留英文原样）
+    return segmentTranslate(core);
   }
 
   /** 只改词典能命中的展示字段；枚举值（如 armour.chest）不在词典中，天然不受影响 */
   // label/title 为筛选器分组标题（如 "Item Category"），text 为选项文案；type 等枚举值天然不在词典中
-  const TEXT_FIELDS = ['label', 'title', 'text', 'type'];
+  const TEXT_FIELDS = ['label', 'title', 'text'];
 
   // 机器枚举值：出现在 stats 数据的 type 字段中，是查询构造依据，绝不能按文本改写
   const ENUM_VALUES = [
@@ -221,6 +306,9 @@
   const textMapReady = new Promise((resolve) => {
     textMapResolve = resolve;
   });
+
+  // 当前正在处理的数据段（stats / items / static），用于区分「展示文案」与「查询枚举」
+  let activeSegment = '';
 
   const MOD_FIELDS = [
     'explicitMods', 'implicitMods', 'craftedMods', 'enchantMods', 'scourgeMods',
@@ -329,10 +417,14 @@
       const field = TEXT_FIELDS[i];
       const val = entry[field];
       if (typeof val !== 'string' || !val) continue;
-      // type 在 stats 数据里是查询用的机器枚举值：词库里有同名界面词（"Explicit"→"显式"），
-      // 若按文本改写，页面会构造出 type="显式" 的非法查询以致搜索失效。物品数据的 type
-      // 是基底展示名（如 "Chaos Orb"），不在枚举集合内，照常翻译。
-      if (field === 'type' && ENUM_VALUES.indexOf(String(val).toLowerCase()) >= 0) continue;
+      // type 是查询用的机器枚举值，词库里有同名界面词（"Explicit"→"显式"、"Claw"→"爪"），
+      // 若按文本改写，页面会构造出 type="爪" 的非法查询以致搜索失效。
+      // 物品/类别数据的 type 就是基底/分类查询值（"Chaos Orb"、"Rune Dagger"），同等对待，绝不改写；
+      // 界面显示走的是 text / label 字段，翻译不受影响。
+      // v0.3.3：只改展示字段（label/title/text），机器枚举字段 type 一律不碰。
+      // 官网用 price.type('~price' / '~b/o') 等枚举渲染结果行，改写后变成无法识别的枚举，
+      // 结果区渲染中断并永久停在加载态（v0.3.2 分词兜底把 "~price" 译成 "~价格" 即此类事故）。
+      if (val.indexOf('~') >= 0) continue;
       const byIdHit = keyId && field === 'text' ? i18nConfig.byId[keyId] : null;
       const zh = byIdHit || translateText(val);
       if (!zh || zh === val) continue;
@@ -372,6 +464,8 @@
 
   function localizePayload(payload, segment) {
     const stats = { rewritten: 0 };
+    const prevSegment = activeSegment;
+    activeSegment = segment || '';
     try {
       i18nConfig.stats.requests += 1;
       if (!i18nConfig.enabled) return { payload, changed: 0 };
@@ -388,6 +482,8 @@
         if (textMapResolve) textMapResolve();
       }
       return { payload, changed: 0 };
+    } finally {
+      activeSegment = prevSegment;
     }
     return { payload, changed: stats.rewritten };
   }

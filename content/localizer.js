@@ -36,7 +36,9 @@
     SELECT: 1
   };
 
-  var SKIP_SELECTOR = '#ptc-root, [data-ptc-skip], .ptc-panel, .ptc-tooltip, .ptc-badge, .ptc-toast';
+  var SKIP_SELECTOR = '#ptc-root, [data-ptc-skip], .ptc-panel, .ptc-tooltip, .ptc-badge, .ptc-toast, .itemName, .itemTypeLine, .typeLine, [class*="itemName"], [class*="itemTypeLine"]';
+  // ↑ 末段为结果区「物品名 + 基底名」：这两类内容刻意保留英文（暗金名/基底名不译），
+  //   即使词库中存在同名筛选项（如 Rune Dagger）也不得改写结果行，避免玩家对不上英文物品。
 
   /* 允许做"整块聚合"的元素：纯文本容器类标签 */
   var AGG_TAGS = {
@@ -134,17 +136,100 @@
     return out;
   }
 
+  /* ------------------------------------------------------------ 分词组合兜底（v0.3.2） */
+
+  var SEG_SPLIT = /([A-Za-z][A-Za-z'\u2019\-]*)/;
+
+  /** 分隔符归一化：括号/冒号转全角，数字与斜杠前补空格 */
+  function mapSep(sep) {
+    var t = String(sep || '').replace(/[\s\u00a0]+/g, ' ').trim();
+    if (!t) return '';
+    var out = '';
+    for (var i = 0; i < t.length; i += 1) {
+      var c = t.charAt(i);
+      if (c === '(') out += '（';
+      else if (c === ')') out += '）';
+      else if (c === ':') out += '：';
+      else if (c === ',') out += '，';
+      else if (c === ';') out += '；';
+      else if (c === '!') out += '！';
+      else if (c === '?') out += '？';
+      else out += c;
+    }
+    if (/^[\/\d%+\-]/.test(t)) out = ' ' + out;
+    return out;
+  }
+
+  /**
+   * 分词组合匹配：官方市集大量下拉项是「已知词条 + 已知词条」拼成的
+   * （One-Handed melee Weapon / Any Dagger / Claws (Claw) / Damage / 100%），
+   * 逐条登记组合会无限膨胀，故按单词贪心最长匹配拼装。
+   * 纪律：任一单词未命中即整体放弃（保留英文原样），绝不产出半中半英。
+   */
+  function segmentMatch(core) {
+    if (!core || core.length > 64) return null;
+    var parts = core.split(SEG_SPLIT);
+    var words = [];
+    var seps = [];
+    var buf = '';
+    for (var i = 0; i < parts.length; i += 1) {
+      var seg = parts[i];
+      if (seg === '') continue;
+      if (i % 2 === 0) {
+        buf += seg;
+      } else {
+        seps.push(buf);
+        buf = '';
+        words.push(seg);
+      }
+    }
+    seps.push(buf);
+    if (!words.length || words.length > 8 || seps.length !== words.length + 1) return null;
+
+    var picks = [];
+    var idx = 0;
+    while (idx < words.length) {
+      var hit = null;
+      var used = 0;
+      for (var len = Math.min(5, words.length - idx); len >= 1; len -= 1) {
+        var phrase = words.slice(idx, idx + len).join(' ');
+        var v = pick(state.dict, state.dictLower, phrase);
+        if (v === null && len === 1) v = pick(state.dict, state.dictLower, phrase + 's');
+        if (v !== null) {
+          hit = v;
+          used = len;
+          break;
+        }
+      }
+      if (hit === null) return null;
+      picks.push(hit);
+      idx += used;
+    }
+    if (picks.length !== words.length) return null;
+
+    var out = '';
+    for (var w = 0; w < words.length; w += 1) {
+      out += mapSep(seps[w]) + picks[w];
+    }
+    out += mapSep(seps[words.length]);
+    if (!out || out === core) return null;
+    if (hasResidualEnglish(out)) return null;
+    return out;
+  }
+
   /** 核心匹配：词条精确 → 句式模板 → null（调用方保留英文原样） */
   function matchCore(core) {
     if (!core) return null;
     var hit = pick(state.dict, state.dictLower, core);
     if (hit !== null) return hit;
-    if (!state.patterns || !state.patternsList.length) return null;
-    for (var i = 0; i < state.patternsList.length; i++) {
-      var out = applyPattern(state.patternsList[i], core);
-      if (out !== null) return out;
+    if (state.patterns && state.patternsList.length) {
+      for (var i = 0; i < state.patternsList.length; i++) {
+        var out = applyPattern(state.patternsList[i], core);
+        if (out !== null) return out;
+      }
     }
-    return null;
+    /* 最后一层：分词组合兜底（全部单词命中才输出） */
+    return segmentMatch(core);
   }
 
   /**
@@ -357,57 +442,56 @@
    * 整块聚合：元素文本整体命中后，把子节点合并为单一文本节点。
    * 原文子节点保留在记录里，还原时原样塞回，可见内容与结构均能回退。
    */
+  /** 收集元素内部可写文本节点（只收集，不增删节点） */
+  function collectTextDesc(el, out) {
+    var kids = el.childNodes;
+    for (var i = 0; i < kids.length; i++) {
+      var n = kids[i];
+      if (n.nodeType === 3) { out.push(n); continue; }
+      if (n.nodeType !== 1) continue;
+      // 图标 / 图片类子元素内部没有界面文案，跳过
+      if (AGG_KEEP_TAGS[n.tagName]) continue;
+      collectTextDesc(n, out);
+    }
+    return out;
+  }
+
+  /** 写文本节点并维护还原快照（与 translateNode 共用 state.records） */
+  function writeTextNode(node, value) {
+    var rec = state.records.get(node);
+    var current = node.nodeValue;
+    if (rec && current !== rec.output) rec = { origin: current, output: current };
+    if (!rec) rec = { origin: current, output: current };
+    if (current !== value) node.nodeValue = value;
+    rec.output = value;
+    rec.locked = true;   // 聚合结果独占该节点，逐节点通道不得再覆盖
+    state.records.set(node, rec);
+  }
+
+  /**
+   * 父元素聚合匹配（v0.3.3 起为非破坏式）。
+   * 旧实现把 el 的子节点整体摘除、再追加译文文本节点：官网（React）仍持有这些被摘走的
+   * 节点引用，随后对它们做 removeChild / 复用时会抛 NotFoundError，结果区渲染链路中断，
+   * 页面永久停在“加载中”。现在改为就地改写已有文本节点的 nodeValue，节点身份完全保留。
+   */
   function aggregate(el) {
-    if (!isAggCandidate(el)) return false;
-    if (hasBlockedDescendant(el)) return false;
-
+    if (!isAggCandidate(el) || hasBlockedDescendant(el)) return false;
     var core = normalize(el.textContent || '');
+    if (!core) return false;
     var zh = matchCore(core);
-    if (zh === null || zh === core) return false;
-
-    var existing = state.collapseIndex.get(el);
-    if (existing && existing.output === zh && el.textContent === zh) return false;
-
-    var nodes = [];
-    var keep = [];
-    for (var i = 0; i < el.childNodes.length; i++) {
-      var n = el.childNodes[i];
-      nodes.push(n);
-      if (n.nodeType === 1 && AGG_KEEP_TAGS[n.tagName]) keep.push(n);
+    if (!zh || zh === core) return false;
+    var nodes = collectTextDesc(el, []);
+    if (!nodes.length) return false;
+    var target = null;
+    for (var i = 0; i < nodes.length; i++) {
+      if (normalize(nodes[i].nodeValue || '')) { target = nodes[i]; break; }
     }
-
-    var rec;
-    if (existing) {
-      // React 重新渲染过子节点：用当前子节点刷新原文快照
-      existing.nodes = nodes;
-      existing.origin = core;
-      existing.output = zh;
-      rec = existing;
-    } else {
-      rec = { el: el, nodes: nodes, origin: core, output: zh };
-      state.collapseIndex.set(el, rec);
-      state.collapses.push(rec);
-    }
-
-    /* 先清空，再按需把图标类子元素原位放回，最后追加唯一译文文本节点 */
-    while (el.firstChild) el.removeChild(el.firstChild);
-    for (var k = 0; k < keep.length; k++) {
-      try {
-        el.appendChild(keep[k]);
-      } catch (e) {
-        /* ignore */
-      }
-    }
-    var doc = el.ownerDocument || (typeof document !== 'undefined' ? document : null);
-    if (doc && doc.createTextNode) {
-      el.appendChild(doc.createTextNode(zh));
-    } else {
-      el.textContent = zh;
-    }
-    try {
-      el.setAttribute('data-ptc-zh', '1');
-    } catch (e) {
-      /* ignore */
+    if (!target) return false;
+    if (nodes.length === 1 && normalize(target.nodeValue || '') === zh) return false;
+    writeTextNode(target, zh);
+    for (var j = 0; j < nodes.length; j++) {
+      if (nodes[j] === target) continue;
+      writeTextNode(nodes[j], '');
     }
     state.stats.collapsed += 1;
     return true;
@@ -446,6 +530,8 @@
       origin = { origin: current, output: current };
       state.records.set(node, origin);
     }
+    // 已被聚合写入（或聚合清空）的节点：保留聚合结果，避免两个通道互相覆盖
+    if (origin && origin.locked) return false;
     var base = origin ? origin.origin : current;
     if (!isCandidate(normalize(base))) {
       if (!origin) state.records.set(node, { origin: current, output: current });
@@ -652,6 +738,7 @@
       while ((node = walker.nextNode())) {
         var rec = state.records.get(node);
         if (rec && rec.origin !== rec.output && node.nodeValue === rec.output) node.nodeValue = rec.origin;
+        if (rec && rec.locked) rec.locked = false;
       }
       var els = document.body.querySelectorAll('[placeholder], [title], [aria-label]');
       for (var i = 0; i < els.length; i++) {

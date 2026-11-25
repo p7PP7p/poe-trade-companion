@@ -1,7 +1,7 @@
-{
+﻿{
   "manifest_version": 3,
   "name": "PoE Trade Companion — 市集增强",
-  "version": "0.3.1",
+  "version": "0.3.3",
   "description": "流放之路国际服官方市集增强：价格统计、快速估价、收藏降价追踪、一键复制私聊文本，并汉化市集筛选面板、查询结果与装备词缀。",
   "minimum_chrome_version": "111",
   "permissions": [
