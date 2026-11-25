@@ -89,7 +89,7 @@
   }
 
   const DATA_PATH = '/api/trade/data/';
-  const DATA_SEGMENTS = ['stats', 'items', 'static'];
+  const DATA_SEGMENTS = ['stats', 'items', 'static', 'filters'];
 
   /** 识别数据接口：stats / items / static / other，非数据接口返回 null */
   function classifyData(url) {
@@ -118,6 +118,39 @@
     }
   }
 
+  /* ---------------- 内置词缀词库（MAIN world 同步展开，v0.3.4） ----------------
+     历史成因：词缀库（1.8 万条 / 1.2MB）此前只由 ISOLATED world 异步加载、再 postMessage 下发，
+     而首屏 /api/trade/data/stats 往往早于它到达，闸门最多等 2.5 秒仍可能超时放行，
+     于是属性筛选下拉大面积英文、首屏筛选器只翻半截。
+     修复：同一份 lib/i18n-stats-zh.js 也注入 MAIN world，由 window.PTC_STATS_ZH 同步展开，
+     首屏即可用于 stats 响应；ISOLATED 下发的 byId 仍作为覆盖层（含用户自定义/远端更新）。 */
+  const builtinStatsById = (function () {
+    const out = Object.create(null);
+    try {
+      const payload = (typeof window === 'object' && window.PTC_STATS_ZH) || null;
+      const groups = payload && payload.g;
+      if (!groups) return out;
+      const prefixes = Object.keys(groups);
+      for (let i = 0; i < prefixes.length; i++) {
+        const prefix = prefixes[i];
+        const bag = groups[prefix];
+        if (!bag) continue;
+        for (const key in bag) {
+          const zh = bag[key];
+          if (typeof zh !== 'string' || !zh) continue;
+          // 官方 id 形如 pseudo.pseudo_xxx / explicit.stat_xxx；词库键省略了分组前缀，
+          // 两种写法都登记，宁可多一条映射也不要漏认。
+          out[key.indexOf('stat_') === 0 ? prefix + key : prefix + key] = zh;
+          if (key.indexOf('stat_') === 0) out[key] = zh;
+        }
+      }
+    } catch (e) {
+      /* 词库缺失时退回等待 ISOLATED 下发 */
+    }
+    return out;
+  })();
+  const builtinStatsReady = Object.keys(builtinStatsById).length > 0;
+
   function buildI18n(payload) {
     const builtin = (typeof window.PTC_I18N === 'object' && window.PTC_I18N) || {};
     const level = payload && payload.level === 'full' ? 'full' : 'ui';
@@ -143,15 +176,19 @@
     // 词缀词库（约 1.8 万条）：按版本号判断是否需要重建，避免每次下发都重算大表
     const incomingById = payload && payload.byId;
     const incomingVer = payload && payload.byIdVersion ? String(payload.byIdVersion) : '';
-    i18nConfig.statsDictLoaded = !payload || payload.statsDictLoaded !== false;
+    // v0.3.4：MAIN world 已能同步展开词缀库时，不再标记“未就绪”，
+    // 首屏 stats 请求无需等待 ISOLATED 下发，避免闸门超时只翻半截。
+    i18nConfig.statsDictLoaded = builtinStatsReady || !payload || payload.statsDictLoaded !== false;
     if (incomingById && incomingVer !== i18nConfig.byIdVersion) {
       i18nConfig.byId = Object.create(null);
+      mergePlain(i18nConfig.byId, builtinStatsById);
       mergePlain(i18nConfig.byId, builtin.byId);
       mergePlain(i18nConfig.byId, incomingById);
       i18nConfig.byIdVersion = incomingVer;
     } else if (!incomingById && incomingVer !== i18nConfig.byIdVersion) {
-      // 未下发词缀库：只保留内置 byId
+      // 未下发词缀库：保留 MAIN world 内置词缀库 + 内置 byId
       i18nConfig.byId = Object.create(null);
+      mergePlain(i18nConfig.byId, builtinStatsById);
       mergePlain(i18nConfig.byId, builtin.byId);
       i18nConfig.byIdVersion = incomingVer;
     }
@@ -288,6 +325,7 @@
 
   /** 只改词典能命中的展示字段；枚举值（如 armour.chest）不在词典中，天然不受影响 */
   // label/title 为筛选器分组标题（如 "Item Category"），text 为选项文案；type 等枚举值天然不在词典中
+  const HAS_CJK = /[\u4e00-\u9fff]/;
   const TEXT_FIELDS = ['label', 'title', 'text'];
 
   // 机器枚举值：出现在 stats 数据的 type 字段中，是查询构造依据，绝不能按文本改写
@@ -301,7 +339,19 @@
   // “归一化英文模板 → 中文模板”反查表，再把 # 回填成实际数值即可翻译；
   // 这是把装备词缀长尾从“只能保留英文”变成可译的关键，且完全在数据层完成，无 DOM 时序问题。
   const statTextMap = Object.create(null);
-  let statTextReady = false;
+  // v0.3.4：内置「英文模板 → 中文模板」表（lib/i18n-stats-tpl.js，由国际服/国服 stats 按 id 对齐生成）。
+  // 旧版反查表只在用户真正拉过 stats 响应后才可用，首次打开结果页时词缀仍全英文；
+  // 内置表让词缀行在页面初始化阶段就能译出，且不再依赖请求先后顺序。
+  const tplMapLower = Object.create(null);
+  (function loadBuiltinTplMap() {
+    const raw = (typeof window === 'object' && window.PTC_STATS_TPL) || null;
+    if (!raw) return;
+    for (const k in raw) {
+      if (!Object.prototype.hasOwnProperty.call(raw, k)) continue;
+      tplMapLower[k] = raw[k];
+    }
+  })();
+  let statTextReady = Object.keys(tplMapLower).length > 0;
   let textMapResolve = null;
   const textMapReady = new Promise((resolve) => {
     textMapResolve = resolve;
@@ -347,7 +397,7 @@
 
   function translateModLine(line) {
     const t = templateKey(line);
-    const tpl = statTextMap[t.key];
+    const tpl = statTextMap[t.key] || statTextMap[t.key.toLowerCase()] || tplMapLower[t.key.toLowerCase()];
     if (!tpl) return null;
     return fillTemplate(tpl, t.nums);
   }
@@ -425,7 +475,9 @@
       // 官网用 price.type('~price' / '~b/o') 等枚举渲染结果行，改写后变成无法识别的枚举，
       // 结果区渲染中断并永久停在加载态（v0.3.2 分词兜底把 "~price" 译成 "~价格" 即此类事故）。
       if (val.indexOf('~') >= 0) continue;
-      const byIdHit = keyId && field === 'text' ? i18nConfig.byId[keyId] : null;
+      const byIdHit = keyId && field === 'text'
+        ? i18nConfig.byId[keyId] || builtinStatsById[keyId] || null
+        : null;
       const zh = byIdHit || translateText(val);
       if (!zh || zh === val) continue;
       // 顺带沉淀“英文模板 → 中文模板”，供物品词缀行反查
@@ -435,6 +487,183 @@
       }
       entry[field] = zh;
       stats.rewritten += 1;
+    }
+  }
+
+  /**
+   * 查询结果行「物品名 / 基底名」汉化（v0.3.4）。
+   * 旧版把结果区 name/typeLine 一律保留英文，用户看到的列表内容因此全英文。
+   * 现在只走「权威专名词库精确命中」这一条通道：命中即译（宝石 Rain of Arrows→箭雨、
+   * 通货 Chaos Orb→混沌石），未命中一律保留英文原样，绝不做分词猜测，避免暗金名被拼错。
+   */
+  const ITEM_NAME_FIELDS = ['typeLine', 'baseType'];
+
+  /* 物品说明类文本（v0.3.4 收尾）：descrText 是固定的技能使用说明，
+     secDescrText 是技能长描述。只走词条精确命中，命中即译，未命中保留英文。 */
+  const ITEM_TEXT_FIELDS = ['descrText', 'secDescrText'];
+
+  function rewriteItemTexts(item, stats) {
+    for (let i = 0; i < ITEM_TEXT_FIELDS.length; i++) {
+      const field = ITEM_TEXT_FIELDS[i];
+      const val = item[field];
+      if (typeof val !== 'string' || !val || HAS_CJK.test(val)) continue;
+      const zh = i18nConfig.dict[val] || i18nConfig.dictLower[val.toLowerCase()];
+      if (typeof zh !== 'string' || !zh || zh === val) continue;
+      item[field] = zh;
+      stats.rewritten += 1;
+    }
+  }
+
+  function rewriteItemName(item, stats) {
+    for (let i = 0; i < ITEM_NAME_FIELDS.length; i++) {
+      const field = ITEM_NAME_FIELDS[i];
+      const val = item[field];
+      if (typeof val !== 'string' || !val) continue;
+      if (HAS_CJK.test(val)) continue;
+      let zh = i18nConfig.dict[val];
+      if (zh === undefined) zh = i18nConfig.dictLower[val.toLowerCase()];
+      if (typeof zh !== 'string' || !zh || zh === val) continue;
+      item[field] = zh;
+      stats.rewritten += 1;
+    }
+  }
+
+  /**
+   * 结果行属性值汉化（v0.3.4）：properties[].values 里的纯文本片段
+   * （"Attack, AoE, Projectile, Bow"、"Main Hand" 等）走分词兜底；
+   * 含数字的值（"48% of base"、"19"）保持原样，避免破坏数值可读性与页面解析。
+   */
+  /* 数值型属性值（v0.3.4 收尾）："48% of base" / "6 Mana" / "4 per Second" 这类
+     「数字 + 单位短语」只用于展示、不参与页面解析，按写死的规则表安全译出；
+     规则未命中一律保留原样，绝不做猜测性拼接。 */
+  const VALUE_RULES = [
+    [/^([\d.,]+%?)\s+of\s+base$/i, (m) => '基础值的 ' + m[1]],
+    [/^([\d.,]+)\s+Mana$/i, (m) => m[1] + ' 魔力'],
+    [/^([\d.,]+)\s+Life$/i, (m) => m[1] + ' 生命'],
+    [/^([\d.,]+)\s+per\s+Second\s+per\s+Charge$/i, (m) => '每充能每秒 ' + m[1]],
+    [/^([\d.,]+)\s+per\s+Second$/i, (m) => '每秒 ' + m[1]],
+    [/^([\d.,]+)%\s+increased$/i, (m) => '提高 ' + m[1] + '%'],
+    [/^([\d.,]+)%\s+reduced$/i, (m) => '降低 ' + m[1] + '%'],
+    [/^(.+)\s+per\s+Second$/i, (m) => '每秒 ' + m[1]]
+  ];
+
+  function translateValueText(txt) {
+    for (let i = 0; i < VALUE_RULES.length; i++) {
+      const hit = VALUE_RULES[i][0].exec(txt);
+      if (hit) return VALUE_RULES[i][1](hit);
+    }
+    if (/[0-9]/.test(txt)) return null;
+    return translateText(txt);
+  }
+
+  function rewritePropertyValues(item, stats) {
+    const rows = item.properties;
+    if (!Array.isArray(rows)) return;
+    for (let i = 0; i < rows.length; i++) {
+      const vals = rows[i] && rows[i].values;
+      if (!Array.isArray(vals)) continue;
+      for (let j = 0; j < vals.length; j++) {
+        const pair = vals[j];
+        if (!Array.isArray(pair)) continue;
+        const txt = pair[0];
+        if (typeof txt !== 'string' || !txt) continue;
+        if (HAS_CJK.test(txt)) continue;
+        const zh = translateValueText(txt);
+        if (!zh || zh === txt) continue;
+        pair[0] = zh;
+        stats.rewritten += 1;
+      }
+    }
+  }
+
+  /* ---------------- items 通道的基底展示名（v0.3.4） ----------------
+     成因：/api/trade/data/items 的条目形如 { type: "Chain Gloves" }，type 在这里是
+     物品基底展示名（物品类别下拉、基底下拉都取自它），而 stats 通道的 type 是
+     explicit / pseudo 这类查询枚举 —— 同名不同义。历史修复为防加载回归把 type 整体
+     排除在 TEXT_FIELDS 之外，于是基底下拉全英文。
+     修复：仅在 items 段对 type 做「整串精确命中词库」的改写，并显式拒绝纯小写枚举
+     与含 ~ 的机器值，既不误伤 query 参数，也不会再触发枚举被翻译的加载回归。 */
+  /**
+   * items 段 type 不再改写（v0.3.4 修正）。
+   * 成因复盘：官网物品类别下拉的选项条目形如 { type: "Chaos Orb" }，没有独立 id，
+   * React 选中后直接把该项的 type 原文写进查询 JSON 的 query.type。v0.3.4 早期版本
+   * 把 type 改成中文后，界面看着是中文了，但发出的请求带着 type="混沌石"，
+   * 接口按未知类别处理，静默返回空结果 —— 与「一直加载」属同一类事故。
+   * 因此这里彻底关闭数据层 type 改写：item 类别下拉的中文化改由 filters 通道
+   * （按 id 对齐，参见 rewriteFilters）与 DOM 层词库共同完成，展示照样是中文，
+   * 但查询参数永远是英文枚举。
+   */
+  function rewriteItemEntries() {
+    return;
+  }
+
+  /* ---------------- 筛选项 id 级汉化（v0.3.4） ----------------
+     成因：筛选器下拉的选项文案由 /api/trade/data/filters 下发，长尾选项
+     （Any Celestial Variant / Any Voidborn Variant / Amethyst / Captured Beast 等）
+     在国际服英文侧没有稳定的词库对应物，纯文本匹配必然漏翻。
+     国服同接口的分组 id / 筛选项 id / 选项 id 与国际服一致，故改按 id 对齐；
+     只改展示用的 title / text，不动 id，避免影响筛选请求参数与 React 取值。 */
+  const filterZh = (typeof window === 'object' && window.PTC_FILTERS_ZH) || null;
+
+  function rewriteFilters(payload, stats) {
+    if (!filterZh || !payload || !Array.isArray(payload.result)) return;
+    const gmap = filterZh.group || {};
+    const fmap = filterZh.filter || {};
+    const omap = filterZh.option || {};
+    const optionText = filterZh.optionText || {};
+    const groups = payload.result;
+    for (let gi = 0; gi < groups.length; gi++) {
+      const group = groups[gi];
+      if (!group || typeof group !== 'object') continue;
+      if (group.id && gmap[group.id] && group.title !== gmap[group.id]) {
+        group.title = gmap[group.id];
+        stats.rewritten += 1;
+      } else if (!group.id && group.title) {
+        const gz = translateText(group.title);
+        if (gz && gz !== group.title) { group.title = gz; stats.rewritten += 1; }
+      }
+      const filters = group.filters;
+      if (!Array.isArray(filters)) continue;
+      for (let fi = 0; fi < filters.length; fi++) {
+        const f = filters[fi];
+        if (!f || typeof f !== 'object' || !f.id) continue;
+        const fid = String(f.id);
+        if (fmap[fid] && f.text !== fmap[fid]) {
+          f.text = fmap[fid];
+          stats.rewritten += 1;
+        } else if (!fmap[fid]) {
+          const fz = translateText(f.text);
+          if (fz && fz !== f.text) { f.text = fz; stats.rewritten += 1; }
+        }
+        const bag = omap[fid];
+        const opts = f.option && Array.isArray(f.option.options) ? f.option.options : null;
+        if (!opts) continue;
+        for (let oi = 0; oi < opts.length; oi++) {
+          const o = opts[oi];
+          if (!o || typeof o !== 'object') continue;
+          const key = o.id === null || o.id === undefined ? '__' + oi : String(o.id);
+          /* 四路兜底（v0.3.4 收尾）：id → 同位置顺序键 → 英文原文键 → 分词词库。
+             成因：国际服选项普遍带 id、国服同一选项 id 常为 null，仅按 id 对齐会成片漏翻；
+             国服没有对应筛选项时（如 map_series / heist_objective_value）再退回文案匹配。 */
+          let zh = bag ? bag[key] : null;
+          if (typeof zh !== 'string' || !zh) {
+            const seq = bag && bag['__' + oi];
+            if (typeof seq === 'string' && seq) zh = seq;
+          }
+          if (typeof zh !== 'string' || !zh) {
+            const byText = optionText[String(o.text || '').replace(/\s+/g, ' ').trim().toLowerCase()];
+            if (typeof byText === 'string' && byText) zh = byText;
+          }
+          if (typeof zh !== 'string' || !zh) {
+            const guess = translateText(o.text);
+            if (guess && guess !== o.text) zh = guess;
+          }
+          if (typeof zh === 'string' && zh && o.text !== zh) {
+            o.text = zh;
+            stats.rewritten += 1;
+          }
+        }
+      }
     }
   }
 
@@ -453,6 +682,10 @@
     }
     // 属性条目（护甲/能量护盾/需求等级）名称中文化
     if (node.properties || node.requirements) rewriteNamedList(node, stats);
+    // v0.3.4：结果行展示内容（物品名 / 基底名 / 属性值文本）中文化
+    if (node.typeLine || node.baseType) rewriteItemName(node, stats);
+    if (node.descrText || node.secDescrText) rewriteItemTexts(node, stats);
+    if (node.properties) rewritePropertyValues(node, stats);
     for (const k in node) {
       if (!Object.prototype.hasOwnProperty.call(node, k)) continue;
       // 图标/私聊原文/角色名不属于界面文案，绝不改写
@@ -469,7 +702,10 @@
     try {
       i18nConfig.stats.requests += 1;
       if (!i18nConfig.enabled) return { payload, changed: 0 };
+      // 筛选器通道优先走 id 对齐，再做文本词库兜底
+      if (segment === 'filters') rewriteFilters(payload, stats);
       walkI18n(payload, stats, 0);
+      // items 通道的 type 是查询参数原文，禁止改写（见 rewriteItemEntries 注释）
       i18nConfig.stats.rewritten += stats.rewritten;
       // stats 响应处理完即视为反查表就绪，放行此前挂起的物品响应
       if (segment === 'stats' && !statTextReady) {

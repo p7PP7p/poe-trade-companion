@@ -1,7 +1,7 @@
-﻿{
+{
   "manifest_version": 3,
   "name": "PoE Trade Companion — 市集增强",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "流放之路国际服官方市集增强：价格统计、快速估价、收藏降价追踪、一键复制私聊文本，并汉化市集筛选面板、查询结果与装备词缀。",
   "minimum_chrome_version": "111",
   "permissions": [
@@ -27,6 +27,9 @@
       ],
       "js": [
         "lib/i18n-dict.js",
+        "lib/i18n-stats-zh.js",
+        "lib/i18n-filters-zh.js",
+        "lib/i18n-stats-tpl.js",
         "content/inject.js"
       ],
       "run_at": "document_start",
@@ -81,7 +84,11 @@
         "lib/i18n-dict.js",
         "content/localizer.js",
         "config/i18n-zh.json",
-        "config/i18n-stats-zh.json"
+        "config/i18n-stats-zh.json",
+        "config/i18n-filters-zh.json",
+        "lib/i18n-filters-zh.js",
+        "lib/i18n-stats-zh.js",
+        "lib/i18n-stats-tpl.js"
       ],
       "matches": [
         "https://www.pathofexile.com/*"

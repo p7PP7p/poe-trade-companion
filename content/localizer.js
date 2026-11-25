@@ -232,6 +232,28 @@
     return segmentMatch(core);
   }
 
+
+  /* ------------------------------------------------------------ 数值型文本兜底（v0.3.4 收尾） */
+  /* 与数据层同一套写死规则：仅处理「数字 + 固定单位短语」的展示文本
+     （"48% of base" / "6 Mana" / "4 per Second"），规则未命中一律返回 null，
+     调用方保留英文原样，避免把价格、等级、随机数值误译。 */
+  var VALUE_RULES = [
+    [/^([\d.,]+%?)\s+of\s+base$/i, function (m) { return '基础值的 ' + m[1]; }],
+    [/^([\d.,]+)\s+Mana$/i, function (m) { return m[1] + ' 魔力'; }],
+    [/^([\d.,]+)\s+Life$/i, function (m) { return m[1] + ' 生命'; }],
+    [/^([\d.,]+)\s+per\s+Second$/i, function (m) { return '每秒 ' + m[1]; }],
+    [/^([\d.,]+)%\s+increased$/i, function (m) { return '提高 ' + m[1] + '%'; }],
+    [/^([\d.,]+)%\s+reduced$/i, function (m) { return '降低 ' + m[1] + '%'; }]
+  ];
+
+  function translateValueCore(core) {
+    for (var i = 0; i < VALUE_RULES.length; i += 1) {
+      var hit = VALUE_RULES[i][0].exec(core);
+      if (hit) return VALUE_RULES[i][1](hit);
+    }
+    return null;
+  }
+
   /**
    * 对外翻译入口：保留首尾空白，供文本节点写回。
    * 未命中返回 null（调用方必须保留英文原样，不得做任何降级拼接）。
@@ -240,7 +262,13 @@
     var text = String(raw == null ? '' : raw);
     var core = normalize(text);
     if (!core || !isCandidate(core)) return null;
-    var zh = matchCore(core);
+    /* 机器标记（~price / ~b/o 等）一律不译，避免影响官网自身的枚举展示 */
+    if (core.indexOf('~') >= 0) return null;
+    /* 数字开头的展示值优先走写死的数值规则，比句式模板更贴近中文语序
+       （"48% of base" → "基础值的 48%"，模板会得到"48%的基础"这类生硬结果） */
+    var zh = /^[0-9+\-.]/.test(core) ? translateValueCore(core) : null;
+    if (zh === null) zh = matchCore(core);
+    if (zh === null) zh = translateValueCore(core);
     if (zh === null) return null;
     var lead = text.match(/^\s*/)[0];
     var trail = text.match(/\s*$/)[0];
