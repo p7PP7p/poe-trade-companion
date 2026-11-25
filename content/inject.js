@@ -605,6 +605,22 @@
      只改展示用的 title / text，不动 id，避免影响筛选请求参数与 React 取值。 */
   const filterZh = (typeof window === 'object' && window.PTC_FILTERS_ZH) || null;
 
+  /* v0.3.5：改写展示文案前把英文原文留在 __ptcRaw 上，供搜索桥做「中↔英」反向匹配。
+     用 non-enumerable 定义，避免污染 JSON 序列化与 Vue 响应式依赖收集。 */
+  function rememberRaw(obj, key) {
+    if (!obj || typeof obj !== 'object') return;
+    try {
+      if (typeof obj.__ptcRaw === 'string' && obj.__ptcRaw) return;
+      var cur = obj[key];
+      if (typeof cur !== 'string' || !cur) return;
+      Object.defineProperty(obj, '__ptcRaw', {
+        value: cur, writable: true, configurable: true, enumerable: false
+      });
+    } catch (e) {
+      /* 宿主对象不可扩展时忽略 */
+    }
+  }
+
   function rewriteFilters(payload, stats) {
     if (!filterZh || !payload || !Array.isArray(payload.result)) return;
     const gmap = filterZh.group || {};
@@ -616,11 +632,12 @@
       const group = groups[gi];
       if (!group || typeof group !== 'object') continue;
       if (group.id && gmap[group.id] && group.title !== gmap[group.id]) {
+        rememberRaw(group, 'title');
         group.title = gmap[group.id];
         stats.rewritten += 1;
       } else if (!group.id && group.title) {
         const gz = translateText(group.title);
-        if (gz && gz !== group.title) { group.title = gz; stats.rewritten += 1; }
+        if (gz && gz !== group.title) { rememberRaw(group, 'title'); group.title = gz; stats.rewritten += 1; }
       }
       const filters = group.filters;
       if (!Array.isArray(filters)) continue;
@@ -629,11 +646,12 @@
         if (!f || typeof f !== 'object' || !f.id) continue;
         const fid = String(f.id);
         if (fmap[fid] && f.text !== fmap[fid]) {
+          rememberRaw(f, 'text');
           f.text = fmap[fid];
           stats.rewritten += 1;
         } else if (!fmap[fid]) {
           const fz = translateText(f.text);
-          if (fz && fz !== f.text) { f.text = fz; stats.rewritten += 1; }
+          if (fz && fz !== f.text) { rememberRaw(f, 'text'); f.text = fz; stats.rewritten += 1; }
         }
         const bag = omap[fid];
         const opts = f.option && Array.isArray(f.option.options) ? f.option.options : null;
@@ -641,15 +659,14 @@
         for (let oi = 0; oi < opts.length; oi++) {
           const o = opts[oi];
           if (!o || typeof o !== 'object') continue;
-          const key = o.id === null || o.id === undefined ? '__' + oi : String(o.id);
-          /* 四路兜底（v0.3.4 收尾）：id → 同位置顺序键 → 英文原文键 → 分词词库。
+          const hasId = o.id !== null && o.id !== undefined;
+          const key = hasId ? String(o.id) : '__' + oi;
+          /* 多路兜底（v0.3.5 调整优先级）：id → 英文原文键 → 分词词库 → 同位置顺序键。
              成因：国际服选项普遍带 id、国服同一选项 id 常为 null，仅按 id 对齐会成片漏翻；
-             国服没有对应筛选项时（如 map_series / heist_objective_value）再退回文案匹配。 */
-          let zh = bag ? bag[key] : null;
-          if (typeof zh !== 'string' || !zh) {
-            const seq = bag && bag['__' + oi];
-            if (typeof seq === 'string' && seq) zh = seq;
-          }
+             但顺序键只在「选项自身没有 id」或「语义匹配全部落空」时才可用——
+             若拿带 id 的选项去套国服同位置文案，会因两边排序不同而张冠李戴
+             （例：国际服 accessories 排第 0 位，国服第 0 位是 Any，套用后变成「任何」）。 */
+          let zh = hasId && bag ? bag[key] : null;
           if (typeof zh !== 'string' || !zh) {
             const byText = optionText[String(o.text || '').replace(/\s+/g, ' ').trim().toLowerCase()];
             if (typeof byText === 'string' && byText) zh = byText;
@@ -658,7 +675,12 @@
             const guess = translateText(o.text);
             if (guess && guess !== o.text) zh = guess;
           }
+          if (typeof zh !== 'string' || !zh) {
+            const seq = bag && bag['__' + oi];
+            if (typeof seq === 'string' && seq) zh = seq;
+          }
           if (typeof zh === 'string' && zh && o.text !== zh) {
+            rememberRaw(o, 'text');
             o.text = zh;
             stats.rewritten += 1;
           }
