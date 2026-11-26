@@ -1,4 +1,4 @@
-/**
+﻿/**
  * content/inject.js — MAIN world 数据层
  * hook window.fetch / XMLHttpRequest，拦截市集搜索与详情请求，
  * 并把结果通过 postMessage 交给 ISOLATED world 的 content.js。
@@ -14,6 +14,313 @@
   const origFetch = window.fetch;
   const origXhrOpen = XMLHttpRequest.prototype.open;
   const origXhrSend = XMLHttpRequest.prototype.send;
+
+  /* ==========================================================================
+   * v0.4.0 — 挑战页判定纠偏 + 可恢复 hook + 启动状态可观测
+   *
+   * 故障（v0.3.8 引入）：把「页面里存在 challenge-platform 脚本 / Cloudflare iframe /
+   *   标题含安全验证」直接当成挑战页。这些痕迹在正常交易页同样常驻（Cloudflare 运行期
+   *   会持续注入 challenge-platform 脚本做校验），于是正常页面被整页判为挑战页，
+   *   fetch/XHR hook 从不安装，桥接与汉化被整体停用。
+   *
+   * 纠偏：只有「文档确实被 Cloudflare 接管」才让出控制权，判定只看三类硬信号：
+   *   1) 地址已进入 /cdn-cgi/ 边缘路径；
+   *   2) DOM 中存在 #challenge-form 或 #cf-challenge-running；
+   *   3) 标题是挑战文案（Just a moment / 请稍候 / 正在验证 …）「并且」页面无 PoE 应用根节点。
+   *   其余痕迹（challenge-platform 脚本、challenges.cloudflare.com iframe、_cf_chl_opt）
+   *   只记为诊断信号，不再作为退出依据。
+   *
+   * 可恢复：不再写「一次性放弃」开关。挑战期间把原生实现放回去，同时保留巡检；
+   *   挑战消失且应用根出现后重新安装 hook（同文档内挑战被移除的场景）。
+   *
+   * 可观测：window.__PTC_STATUS__ + documentElement[data-ptc-status] + console 摘要，
+   *   暴露版本号、hook 是否安装、词库条数、挑战判定与中止原因。
+   * ========================================================================== */
+  const PTC_VERSION = '0.4.1';
+  const xhrMeta = new WeakMap();
+  let hooksInstalled = false;
+  let guardTimer = null;
+  let bootTries = 0;
+  let guardTicks = 0;
+  let exceptionCooldownUntil = 0;   // 异常回退后的冷却截止时间（毫秒时间戳）
+  let guardDelay = 250;
+  let abortReason = '';        // '' | not-trade-path | challenge | exception
+  let hookState = 'idle';      // idle | installed | off
+  let lastStatusJSON = '';
+
+  /** PoE 市集页的应用根节点；挑战页只有验证表单，不会有这些节点 */
+  const APP_ROOT_SELECTOR = '#trade, #app, #root, [data-trade-root], .trade-app';
+
+  function hasAppRoot() {
+    try {
+      if (document.querySelector(APP_ROOT_SELECTOR)) return true;
+      const body = document.body;
+      if (!body) return false;
+      /* 兜底：真实交易页一定渲染出导航/筛选面板等结构，挑战页只有验证区块 */
+      return !!(body.querySelector('nav, main, [class*="layout"], [class*="filter"]'));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 收集 Cloudflare 痕迹：仅供诊断与「确实被接管」判定使用 */
+  function challengeSignals() {
+    const sig = [];
+    try {
+      const href = String(location.href || '');
+      if (/\/cdn-cgi\//.test(href)) sig.push('url:/cdn-cgi/');
+      if (document.getElementById('challenge-form')) sig.push('#challenge-form');
+      if (document.getElementById('cf-challenge-running')) sig.push('#cf-challenge-running');
+      const title = String(document.title || '');
+      if (CHALLENGE_TITLE.test(title)) sig.push('title:' + title);
+    } catch (e) {
+      /* 检测异常按「无信号」处理 */
+    }
+    return sig;
+  }
+
+  const CHALLENGE_TITLE = /just a moment|请稍候|请稍後|正在验证|正在進行驗證|正在进行安全验证|安全验证|安全驗證|verifying you are human|checking your browser|attention required/i;
+
+  /**
+   * 文档是否已被 Cloudflare 接管。
+   * 注意：challenge-platform 脚本、challenges.cloudflare.com iframe、_cf_chl_opt
+   * 在正常交易页也会常驻，一律不作为退出依据（v0.3.8 的误判根因）。
+   */
+  function isChallengeTakeover() {
+    try {
+      const sig = challengeSignals();
+      if (!sig.length) return false;
+      for (let i = 0; i < sig.length; i++) {
+        /* 地址进入边缘路径、或出现挑战表单/运行指示器：确定被接管 */
+        if (sig[i].indexOf('title:') !== 0) return true;
+      }
+      /* 只有标题命中：必须同时「没有 PoE 应用根」才算被接管 */
+      return !hasAppRoot();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 只有交易页路径才允许注入 */
+  function isTradePath() {
+    try {
+      return /^\/(trade|trade2)(\/|$)/.test(String(location.pathname || ''));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** 目标接口判定：只有市集搜索 / 详情 / 数据接口才接管，其余一律原样透传 */
+  function isTargetUrl(url) {
+    try {
+      return !!(classify(url) || classifyData(url));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function statusSnapshot() {
+    let dictSize = 0;
+    let requests = 0;
+    try {
+      dictSize = Object.keys(i18nConfig.dict || {}).length;
+      if (!dictSize && typeof window === 'object' && window.PTC_I18N && typeof window.PTC_I18N === 'object') {
+        /* 数据层词库要等首个 /api/trade/data/* 响应才构建：启动瞬间先报内置词条数，避免诊断页显示 0 误导 */
+        dictSize = Object.keys(window.PTC_I18N).length;
+      }
+      requests = (i18nConfig.stats && i18nConfig.stats.requests) || 0;
+    } catch (e) {
+      /* 词库尚未初始化 */
+    }
+    let ch = { takeover: false, hasAppRoot: false, signals: [], title: '', path: '' };
+    try {
+      ch = {
+        takeover: isChallengeTakeover(),
+        hasAppRoot: hasAppRoot(),
+        signals: challengeSignals(),
+        title: String(document.title || ''),
+        path: String(location.pathname || '')
+      };
+    } catch (e) {
+      /* ignore */
+    }
+    return {
+      script: 'inject',
+      version: PTC_VERSION,
+      started: true,
+      hooks: hooksInstalled,
+      hookState: hookState,
+      abortReason: abortReason,
+      dictSize: dictSize,
+      requests: requests,
+      challenge: ch,
+      at: Date.now()
+    };
+  }
+
+  /**
+   * 发布启动状态：window.__PTC_STATUS__.scripts.inject + documentElement[data-ptc-status]。
+   * 两者都只写精简字段；属性通道是 MAIN world → ISOLATED world 的唯一可靠通道。
+   */
+  function publishStatus() {
+    try {
+      const snap = statusSnapshot();
+      const S = window.__PTC_STATUS__ = window.__PTC_STATUS__ || {
+        version: PTC_VERSION,
+        world: 'main',
+        startedAt: Date.now(),
+        scripts: {},
+        challenge: null
+      };
+      S.version = PTC_VERSION;
+      S.updatedAt = Date.now();
+      S.challenge = snap.challenge;
+      S.scripts = S.scripts || {};
+      S.scripts.inject = snap;
+
+      const slim = {
+        version: PTC_VERSION,
+        started: true,
+        hooks: snap.hooks,
+        hookState: snap.hookState,
+        abortReason: snap.abortReason,
+        dictSize: snap.dictSize,
+        requests: snap.requests
+      };
+      let payload = { version: PTC_VERSION, world: 'main', challenge: snap.challenge, scripts: {} };
+      try {
+        const prev = JSON.parse(document.documentElement.getAttribute('data-ptc-status') || '{}');
+        if (prev && prev.scripts && typeof prev.scripts === 'object') payload.scripts = prev.scripts;
+      } catch (e) {
+        /* 首次写入或旧值损坏 */
+      }
+      payload.scripts.inject = slim;
+      const json = JSON.stringify(payload);
+      if (json !== lastStatusJSON) {
+        lastStatusJSON = json;
+        document.documentElement.setAttribute('data-ptc-status', json);
+        window.dispatchEvent(new CustomEvent('ptc-status', { detail: payload }));
+        if (typeof console !== 'undefined' && console.info) {
+          console.info(
+            '[PTC v' + PTC_VERSION + '] inject hooks=' + (snap.hooks ? 'installed' : 'off') +
+            (snap.abortReason ? ' reason=' + snap.abortReason : '') +
+            ' dict=' + snap.dictSize +
+            ' challenge=' + (snap.challenge.takeover ? 'yes(' + snap.challenge.signals.join(',') + ')' : 'no')
+          );
+        }
+      }
+    } catch (e) {
+      /* 诊断失败绝不影响页面 */
+    }
+  }
+
+  /** 把原生实现放回去（不再永久放弃：巡检会继续尝试重装） */
+  function restoreNative(reason) {
+    if (!hooksInstalled) {
+      if (reason) abortReason = reason;
+      return;
+    }
+    hooksInstalled = false;
+    hookState = 'off';
+    abortReason = reason || 'exception';
+    /* 异常回退后设冷却窗口：挑战导致的退出可随时重装，异常导致的退出需冷却，避免反复重装刷屏 */
+    if (abortReason === 'exception') exceptionCooldownUntil = Date.now() + 30000;
+    try {
+      if (typeof origFetch === 'function') window.fetch = origFetch;
+    } catch (e) {}
+    try {
+      XMLHttpRequest.prototype.open = origXhrOpen;
+      XMLHttpRequest.prototype.send = origXhrSend;
+    } catch (e) {}
+    try {
+      /* 兼容旧诊断字段：true 表示「当前未 hook」，不再作为门禁 */
+      window.__PTC_HOOKS_OFF__ = true;
+    } catch (e) {}
+    publishStatus();
+  }
+
+  function scheduleGuard(delay) {
+    if (guardTimer) return;
+    try {
+      guardTimer = setTimeout(guardTick, typeof delay === 'number' ? delay : guardDelay);
+    } catch (e) {
+      guardTimer = null;
+    }
+  }
+
+  /**
+   * 常驻巡检（先密后疏）：挑战接管 → 放回原生；挑战消失 → 重新安装 hook。
+   * v0.3.8 的 40 次上限被取消，避免「一次误判 = 永久停用」。
+   */
+  function guardTick() {
+    guardTimer = null;
+    try {
+      if (!isTradePath()) {
+        abortReason = 'not-trade-path';
+      } else if (isChallengeTakeover()) {
+        abortReason = 'challenge';
+        if (hooksInstalled) restoreNative('challenge');
+      } else if (!hooksInstalled && Date.now() < exceptionCooldownUntil) {
+        /* 冷却中：保持原生，不重装 */
+        abortReason = 'exception';
+      } else {
+        if (!hooksInstalled) installHooks();
+        if (hooksInstalled) {
+          abortReason = '';
+          try {
+            window.__PTC_HOOKS_OFF__ = false;
+          } catch (e) {}
+        }
+      }
+    } catch (e) {
+      try {
+        restoreNative('exception');
+      } catch (e2) {}
+    }
+    guardTicks += 1;
+    guardDelay = guardTicks <= 40 ? 250 : 1000;
+    publishStatus();
+    scheduleGuard();
+  }
+
+  /**
+   * 惰性启动：document_start 阶段先不碰任何原生 API，
+   * 等页面脚本开始写入 <head>（挑战脚本若存在此时已就位）再决定是否注入。
+   */
+  function bootHooks() {
+    try {
+      if (!isTradePath()) {
+        abortReason = 'not-trade-path';
+        publishStatus();
+        return;
+      }
+      if (isChallengeTakeover()) {
+        abortReason = 'challenge';
+        publishStatus();
+        scheduleGuard();
+        return;
+      }
+      const head = document.head;
+      const headReady = !!(head && head.childNodes && head.childNodes.length > 0);
+      /* 只要 <head> 已经开始被页面脚本填充、或文档已过 loading 阶段，就认为「挑战脚本若存在此刻已就位」 */
+      const docReady =
+        document.readyState === 'interactive' ||
+        document.readyState === 'complete' ||
+        !!(document.body && document.body.childNodes && document.body.childNodes.length > 0);
+      if (!headReady && !docReady && bootTries < 120) {
+        bootTries += 1;
+        setTimeout(bootHooks, 10);
+        return;
+      }
+      installHooks();
+      publishStatus();
+      scheduleGuard();
+    } catch (e) {
+      try {
+        restoreNative('exception');
+      } catch (e2) {}
+    }
+  }
 
   /** API 路径（可被 ISOLATED world 通过 postMessage 覆盖，以适配赛季改版） */
   const apiConfig = {
@@ -169,6 +476,11 @@
 
     i18nConfig.level = level;
     i18nConfig.dict = dict;
+    try {
+      publishStatus();
+    } catch (e) {
+      /* 状态发布失败不影响改写主流程 */
+    }
     i18nConfig.dictLower = lower;
     i18nConfig.patterns = !payload || payload.patterns !== false;
     i18nConfig.patternsList = Array.isArray(builtin.patterns) ? builtin.patterns : [];
@@ -327,6 +639,91 @@
   // label/title 为筛选器分组标题（如 "Item Category"），text 为选项文案；type 等枚举值天然不在词典中
   const HAS_CJK = /[\u4e00-\u9fff]/;
   const TEXT_FIELDS = ['label', 'title', 'text'];
+
+  /* ---------------- v0.3.7 物品名 / 基底名词库与双语展示 ---------------- */
+  /**
+   * 结果区物品名与基底名展示改为「中文（English 原文）」：
+   *   词库命中 → 「中文（English）」；未命中 → 保留英文原文（绝不猜测拼接）。
+   * 只改展示字段（typeLine / baseType / item.name）。whisper 私聊文本、
+   * 查询用的 type 枚举、筛选器选项 id 与提交值一律不动。
+   * 词库来自 lib/i18n-items-zh.js（window.PTC_ITEMS_ZH），键为官方数据原文、值为中文。
+   */
+  const ITEM_ZH = (typeof window === 'object' && window.PTC_ITEMS_ZH) || null;
+  const itemTypeZh = Object.create(null);   // 小写基底名 → 中文
+  const itemNameZh = Object.create(null);   // 小写物品/暗金名 → 中文
+  const itemZh2En = Object.create(null);    // 归一化中文 → 英文原文（查询换算用）
+  (function initItemDict() {
+    if (!ITEM_ZH || typeof ITEM_ZH !== 'object') return;
+    const fill = function (src, dst) {
+      if (!src || typeof src !== 'object') return;
+      for (const k in src) {
+        if (!Object.prototype.hasOwnProperty.call(src, k)) continue;
+        const zh = src[k];
+        if (typeof zh !== 'string' || !zh) continue;
+        dst[String(k).toLowerCase()] = zh;
+      }
+    };
+    fill(ITEM_ZH.type, itemTypeZh);
+    fill(ITEM_ZH.name, itemNameZh);
+    /* 反向索引：中文 → 英文原文，供「Item name / Item type」搜索请求体换算 */
+    const putRev = function (src) {
+      if (!src || typeof src !== 'object') return;
+      for (const en in src) {
+        if (!Object.prototype.hasOwnProperty.call(src, en)) continue;
+        const zh = src[en];
+        if (typeof zh !== 'string' || !zh) continue;
+        const k = normZhKey(zh);
+        if (!k) continue;
+        if (!itemZh2En[k]) itemZh2En[k] = en;
+      }
+    };
+    putRev(ITEM_ZH.type);
+    putRev(ITEM_ZH.name);
+  })();
+
+  /** 中文键归一化：去全部空白、统一小写，避免输入法带出的空格影响命中 */
+  function normZhKey(s) {
+    return String(s == null ? '' : s).replace(/\s+/g, '').toLowerCase();
+  }
+
+  /**
+   * 中文物品名 → 英文原文（v0.3.7）。
+   * 只做归一化后的精确命中；未命中返回 null，调用方保留原值。
+   * 刻意不做「中文片段 → 猜一个物品」的模糊兜底：中文同字片段极易指向多个物品
+   * （如「黑曜」可命中多把暗金），错配比查不到更糟，因此统一降级为原样提交。
+   */
+  function itemZhToEn(zh) {
+    const q = normZhKey(zh);
+    if (!q) return null;
+    return itemZh2En[q] || null;
+  }
+
+  const BI_OPEN = '（';
+  const BI_CLOSE = '）';
+
+  /** 通用词库精确命中（v0.3.4 的 typeLine 译名来源，保留为二级兜底） */
+  function genericItemZh(en) {
+    const hit = i18nConfig.dict[en];
+    if (typeof hit === 'string' && hit) return hit;
+    const low = i18nConfig.dictLower[en.toLowerCase()];
+    return typeof low === 'string' ? low : undefined;
+  }
+
+  /**
+   * 组装「中文（English）」；返回 null 表示保持原样。
+   * 已含中文、已带双语括号、词库未命中、译名与原文相同 —— 一律不改写。
+   */
+  function bilingual(en, dictA, dictB) {
+    if (typeof en !== 'string' || !en) return null;
+    if (HAS_CJK.test(en)) return null;
+    if (en.indexOf(BI_OPEN) >= 0) return null;
+    const low = en.toLowerCase();
+    let zh = dictA ? dictA[low] : undefined;
+    if (zh === undefined && dictB) zh = dictB[low];
+    if (typeof zh !== 'string' || !zh) return null;
+    if (zh === en || !HAS_CJK.test(zh)) return null;
+    return zh + BI_OPEN + en + BI_CLOSE;
+  }
 
   // 机器枚举值：出现在 stats 数据的 type 字段中，是查询构造依据，绝不能按文本改写
   const ENUM_VALUES = [
@@ -519,12 +916,28 @@
       const field = ITEM_NAME_FIELDS[i];
       const val = item[field];
       if (typeof val !== 'string' || !val) continue;
-      if (HAS_CJK.test(val)) continue;
-      let zh = i18nConfig.dict[val];
-      if (zh === undefined) zh = i18nConfig.dictLower[val.toLowerCase()];
-      if (typeof zh !== 'string' || !zh || zh === val) continue;
-      item[field] = zh;
+      // v0.3.7：基底名改为「中文（English 原文）」双语展示；
+      // 权威物品词库优先，未命中再退通用词库的精确命中，两者都没有则保留英文。
+      let bi = bilingual(val, itemTypeZh, null);
+      if (!bi) {
+        const gz = genericItemZh(val);
+        if (typeof gz === 'string' && gz && gz !== val && HAS_CJK.test(gz)) {
+          bi = gz + BI_OPEN + val + BI_CLOSE;
+        }
+      }
+      if (!bi) continue;
+      item[field] = bi;
       stats.rewritten += 1;
+    }
+    // 物品本体名（暗金专有名 / 通货名等）同样双语；只认专名词库与基底词库，
+    // 不走通用词库，避免暗金名被逐词意译成错名。未命中保留英文原文。
+    const nm = item.name;
+    if (typeof nm === 'string' && nm) {
+      const bi = bilingual(nm, itemNameZh, itemTypeZh);
+      if (bi) {
+        item.name = bi;
+        stats.rewritten += 1;
+      }
     }
   }
 
@@ -967,10 +1380,64 @@
   }
 
   /* ------------------------- fetch hook ------------------------- */
+  /**
+   * v0.3.7：官网「Item name / Item type」搜索只认英文原文，直接提交中文必然 0 结果。
+   * 因此在请求发出前把 query.name / query.type 里的中文按物品词库换成英文原文：
+   *   - 输入框保持用户输入的中文（不改 value，不影响输入法与复制）
+   *   - 提交给官网的查询值与后端契约始终是英文原文
+   * 词库未命中的中文原样提交（结果为空，与未装扩展表现一致，绝不猜测拼接）。
+   */
+  function convertSearchQuery(body) {
+    if (!body || typeof body !== 'object') return false;
+    const q = body.query;
+    if (!q || typeof q !== 'object') return false;
+    let changed = false;
+    const fields = ['name', 'type'];
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      const v = q[f];
+      if (typeof v !== 'string' || !v) continue;
+      if (!HAS_CJK.test(v)) continue;
+      const en = itemZhToEn(v);
+      if (!en) continue;
+      q[f] = en;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /* ------------------------- fetch hook ------------------------- */
+  function installHooks() {
+    if (hooksInstalled) return;
+    if (isChallengeTakeover()) {
+      abortReason = 'challenge';
+      return;
+    }
+    hooksInstalled = true;
+    hookState = 'installed';
+    abortReason = '';
+
   try {
     if (typeof origFetch === 'function') {
       window.fetch = function (input, init) {
+        const self = this;
+        const args = arguments;
+        try {
+          return ptcFetch.call(self, input, init, args);
+        } catch (e) {
+          /* hook 内部任何异常：立刻还原原生实现，并按原样透传 */
+          try {
+            restoreNative('exception');
+          } catch (e2) {}
+          return origFetch.apply(self, args);
+        }
+      };
+
+      function ptcFetch(input, init, outerArgs) {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
+        /* 非目标接口 100% 原样透传：不解析 body、不改写、不挂 then */
+        if (!isTargetUrl(url)) return origFetch.apply(this, outerArgs);
+
         const kind = classify(url);
 
         let request = null;
@@ -982,7 +1449,18 @@
           }
         }
 
-        const promise = origFetch.apply(this, arguments);
+        const promise = (function () {
+          /* 仅当 body 是字符串形式的 init 时才安全改写，避免破坏 Request 对象的 method/headers */
+          try {
+            if (request && init && typeof init.body === 'string' && convertSearchQuery(request)) {
+              const nextInit = Object.assign({}, init, { body: JSON.stringify(request) });
+              return origFetch.apply(this, [input, nextInit]);
+            }
+          } catch (e) {
+            /* 换算失败按原样发送 */
+          }
+          return origFetch.apply(this, outerArgs);
+        }).call(this);
 
         // 业务通道统一先挂 notify：改写路径与直通路径都能把数据与响应头交回侧栏
         const notify = kind
@@ -997,6 +1475,9 @@
             }
           : null;
 
+        /* 请求发出之后：任何异常都不再重复发请求（直接返回原始 promise），
+           同时立即还原原生实现，不再继续介入页面网络层 */
+        try {
         // 通道 A：筛选器词条 / 物品数据接口，改写展示文案后再交回页面
         const dataSegment = classifyData(url);
         if (dataSegment) return localizeResponse(promise, dataSegment, notify);
@@ -1024,17 +1505,28 @@
           /* then 绑定失败忽略 */
         }
         return promise;
+        } catch (e) {
+          /* hook 内部异常：还原原生实现，并按原样把未改写的响应交回页面 */
+          try {
+            restoreNative('exception');
+          } catch (e2) {}
+          return promise;
+        }
       };
     }
   } catch (e) {
-    /* fetch 不可 hook 时静默降级 */
+    /* fetch 不可 hook 时静默降级，并把原生实现放回去 */
+    try {
+      restoreNative('exception');
+    } catch (e2) {}
+    return;
   }
 
   /* ------------------------- XHR hook ------------------------- */
   try {
     XMLHttpRequest.prototype.open = function (method, url) {
       try {
-        this.__ptcMeta = { method: String(method || 'GET').toUpperCase(), url: String(url || '') };
+        xhrMeta.set(this, { method: String(method || 'GET').toUpperCase(), url: String(url || '') });
       } catch (e) {
         /* ignore */
       }
@@ -1042,11 +1534,18 @@
     };
 
     XMLHttpRequest.prototype.send = function (body) {
+      let outBody = body;
       try {
-        const meta = this.__ptcMeta;
+        const meta = xhrMeta.get(this);
         const kind = meta && classify(meta.url);
         if (kind) {
           const request = safeParseBody(body);
+          /* v0.3.7：query.name / query.type 中的中文换成英文原文后再发出 */
+          try {
+            if (request && convertSearchQuery(request)) outBody = JSON.stringify(request);
+          } catch (e) {
+            /* 换算失败按原样发送 */
+          }
           const xhr = this;
           xhr.addEventListener('load', function () {
             try {
@@ -1064,12 +1563,29 @@
           });
         }
       } catch (e) {
-        /* ignore */
+        /* hook 内部异常：还原原生实现并按原样发送 */
+        try {
+          restoreNative('exception');
+        } catch (e2) {}
+        outBody = body;
       }
-      return origXhrSend.apply(this, arguments);
+      return origXhrSend.call(this, outBody);
     };
   } catch (e) {
-    /* XHR 不可 hook 时静默降级 */
+    /* XHR 不可 hook 时静默降级，并把原生实现放回去 */
+    try {
+      restoreNative('exception');
+    } catch (e2) {}
+  }
+  }
+
+  /* 惰性启动：先判定验证页/交易页，再决定是否注入 hook */
+  try {
+    bootHooks();
+  } catch (e) {
+    try {
+      restoreNative('exception');
+    } catch (e2) {}
   }
 
   /* ------------- 接收 ISOLATED world 的指令（同一源 cookie） ------------- */

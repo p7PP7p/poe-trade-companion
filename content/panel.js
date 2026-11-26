@@ -1,4 +1,4 @@
-/**
+﻿/**
  * content/panel.js — UI 层（Shadow DOM 隔离）
  * 右侧可拖拽抽屉 + 浮动球，三个 Tab：价格分析 / 快速估价 / 收藏追踪。
  * 与页面样式完全隔离：所有节点都挂在 #ptc-companion-root 的 shadow root 内。
@@ -10,7 +10,7 @@
   const bus = (PTC.bus = PTC.bus || new EventTarget());
   const PU = PTC.PriceUtils;
 
-  const VERSION = '0.1.0';
+  const VERSION = '0.4.1';
   const WATCH_KEY = 'watchlist';
   const BALL_POS_KEY = 'ptc_ball_pos';
 
@@ -64,6 +64,7 @@
     <button class="ptc-tab is-active" data-tab="price">价格分析</button>
     <button class="ptc-tab" data-tab="estimate">快速估价</button>
     <button class="ptc-tab" data-tab="watch">收藏追踪</button>
+    <button class="ptc-tab" data-tab="diag">诊断</button>
   </nav>
 
   <div class="ptc-body">
@@ -103,6 +104,33 @@
       </div>
       <ul class="ptc-list" id="ptcWatchList"></ul>
       <div class="ptc-empty" id="ptcWatchEmpty">暂无收藏。在「价格分析」列表点 ☆ 即可收藏并追踪降价。</div>
+    </section>
+
+    <section class="ptc-pane" data-pane="diag" hidden>
+      <div class="ptc-diag" id="ptcDiag">
+        <div class="ptc-diag-row"><span class="ptc-diag-k">运行版本</span><span class="ptc-diag-v" id="ptcDiagVersion">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">数据层（inject）</span><span class="ptc-diag-v" id="ptcDiagInject">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">页面汉化</span><span class="ptc-diag-v" id="ptcDiagLocalizer">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">搜索桥接</span><span class="ptc-diag-v" id="ptcDiagBridgeState">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">已挂 hook</span><span class="ptc-diag-v" id="ptcDiagHooks">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">中止原因</span><span class="ptc-diag-v" id="ptcDiagAbort">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">词库条数</span><span class="ptc-diag-v" id="ptcDiagDict">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">反向索引条数</span><span class="ptc-diag-v" id="ptcDiagRev">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">筛选精确索引</span><span class="ptc-diag-v" id="ptcDiagPrecise">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">物品名索引</span><span class="ptc-diag-v" id="ptcDiagItems">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">最近输入</span><span class="ptc-diag-v" id="ptcDiagQuery">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">最近命中</span><span class="ptc-diag-v" id="ptcDiagHits">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">最近提交</span><span class="ptc-diag-v" id="ptcDiagCommit">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">候选浮层触发</span><span class="ptc-diag-v" id="ptcDiagSuggest">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">输入镜像 · 最近换算</span><span class="ptc-diag-v" id="ptcDiagMirror">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">输入镜像 · 执行次数</span><span class="ptc-diag-v" id="ptcDiagMirrorCount">—</span></div>
+        <div class="ptc-diag-row"><span class="ptc-diag-k">输入镜像 · 依赖组件实例</span><span class="ptc-diag-v" id="ptcDiagDeps">—</span></div>
+        <div class="ptc-diag-log" id="ptcDiagMirrorLog">逐次输入日志：暂无</div>
+      </div>
+      <div class="ptc-toolbar">
+        <button class="ptc-btn" id="ptcDiagRefresh">刷新诊断</button>
+        <span class="ptc-hint">中文检索自查：在筛选框输入中文片段，看命中数是否大于 0</span>
+      </div>
     </section>
   </div>
 
@@ -175,6 +203,25 @@
       watchHint: id('ptcWatchHint'),
       watchList: id('ptcWatchList'),
       watchEmpty: id('ptcWatchEmpty'),
+      diagRefresh: id('ptcDiagRefresh'),
+      diagVersion: id('ptcDiagVersion'),
+      diagInject: id('ptcDiagInject'),
+      diagLocalizer: id('ptcDiagLocalizer'),
+      diagBridgeState: id('ptcDiagBridgeState'),
+      diagHooks: id('ptcDiagHooks'),
+      diagAbort: id('ptcDiagAbort'),
+      diagDict: id('ptcDiagDict'),
+      diagRev: id('ptcDiagRev'),
+      diagPrecise: id('ptcDiagPrecise'),
+      diagItems: id('ptcDiagItems'),
+      diagQuery: id('ptcDiagQuery'),
+      diagHits: id('ptcDiagHits'),
+      diagCommit: id('ptcDiagCommit'),
+      diagSuggest: id('ptcDiagSuggest'),
+      diagMirror: id('ptcDiagMirror'),
+      diagMirrorCount: id('ptcDiagMirrorCount'),
+      diagDeps: id('ptcDiagDeps'),
+      diagMirrorLog: id('ptcDiagMirrorLog'),
       status: id('ptcStatus'),
       toast: id('ptcToast')
     };
@@ -649,6 +696,11 @@
     });
     if (tab === 'watch') renderWatch();
     if (tab === 'price') renderPriceList();
+    if (tab === 'diag') {
+      /* v0.3.9：切到诊断页时先渲染本地快照，再向桥接脚本索取最新值 */
+      renderDiag((PTC.content && PTC.content.state && PTC.content.state.bridgeDiag) || null);
+      bus.dispatchEvent(new CustomEvent('diag-request', { detail: {} }));
+    }
   }
 
   function open() {
@@ -809,8 +861,103 @@
     }
     if (ui.els.watchCheck) ui.els.watchCheck.addEventListener('click', checkWatchlist);
     if (ui.els.watchClear) ui.els.watchClear.addEventListener('click', clearWatchlist);
+    if (ui.els.diagRefresh) ui.els.diagRefresh.addEventListener('click', () => {
+      bus.dispatchEvent(new CustomEvent('diag-request', { detail: {} }));
+      renderDiag((PTC.content && PTC.content.state && PTC.content.state.bridgeDiag) || null);
+      status('已请求刷新诊断信息');
+    });
 
     bindDrag();
+  }
+
+  /**
+   * v0.3.9：渲染搜索桥接诊断页。
+   * 数据来自 MAIN world 的 search-bridge.js（经 documentElement 属性 / 自定义事件转出），
+   * 只读展示，用于让用户自查中文检索是否生效（词库条数、最近一次输入与命中数）。
+   */
+  function renderDiag(diag) {
+    const d = diag || {};
+    const num = (v) => (typeof v === 'number' && isFinite(v) ? String(v) : (v ? String(v) : '—'));
+    const set = (el, v) => { if (el) el.textContent = num(v); };
+    set(ui.els.diagVersion, d.version);
+
+    /* v0.4.0：启动状态（版本 / 各脚本是否启动 / 中止原因），值缺失时标注「未运行」 */
+    const st = d.status || {};
+    const scripts = st.scripts || {};
+    const onOff = (v) => (v === true ? '已启动' : v === false ? '未启动' : '—');
+    const reasonText = (r) => (r === 'challenge' ? 'Cloudflare 挑战页'
+      : r === 'not-trade-path' ? '非交易页'
+      : r === 'exception' ? '脚本异常' : (r || '无'));
+    const inj = scripts.inject || {};
+    const loc = scripts.localizer || {};
+    const brg = scripts.bridge || {};
+    if (ui.els.diagInject) {
+      ui.els.diagInject.textContent = (inj.started || inj.hooks)
+        ? ('已启动，hook ' + (inj.hooks ? '已安装' : '未安装') + (inj.abortReason ? '（' + reasonText(inj.abortReason) + '）' : ''))
+        : '未运行';
+    }
+    if (ui.els.diagLocalizer) {
+      ui.els.diagLocalizer.textContent = (loc.started || loc.enabled)
+        ? ((loc.enabled ? '已启用' : '已关闭') + '，等级 ' + (loc.level || '—') + (loc.abortReason ? '（' + reasonText(loc.abortReason) + '）' : ''))
+        : '未运行';
+    }
+    if (ui.els.diagBridgeState) {
+      ui.els.diagBridgeState.textContent = brg.started
+        ? ('已启动' + (brg.installed ? '，监听在位' : '，监听未挂') + '（' + onOff(true) + '）')
+        : (brg.abortReason ? ('未启动（' + reasonText(brg.abortReason) + '）') : '未运行');
+    }
+    if (ui.els.diagHooks) {
+      const parts = [];
+      parts.push('筛选器 ' + (typeof brg.hooks === 'number' ? brg.hooks : 0) + ' 个');
+      parts.push('数据层 ' + (inj.hooks ? '已安装' : '未安装'));
+      ui.els.diagHooks.textContent = parts.join(' / ');
+    }
+    if (ui.els.diagAbort) {
+      const reasons = [];
+      if (inj.abortReason) reasons.push('数据层 ' + reasonText(inj.abortReason));
+      if (loc.abortReason) reasons.push('汉化 ' + reasonText(loc.abortReason));
+      if (brg.abortReason) reasons.push('桥接 ' + reasonText(brg.abortReason));
+      const ch = st.challenge || {};
+      if (ch.takeover) reasons.push('判定为挑战页（' + (ch.signals || []).join('、') + '）');
+      ui.els.diagAbort.textContent = reasons.length ? reasons.join('；') : '无';
+    }
+    set(ui.els.diagDict, d.dict);
+    set(ui.els.diagRev, d.rev);
+    set(ui.els.diagPrecise, d.precise);
+    set(ui.els.diagItems, d.items);
+    set(ui.els.diagQuery, d.lastQuery);
+    if (ui.els.diagHits) {
+      ui.els.diagHits.textContent = (typeof d.lastHits === 'number')
+        ? (d.lastHits > 0 ? (d.lastHits + ' 条候选') : '0（无候选）')
+        : '—';
+    }
+    set(ui.els.diagCommit, d.lastCommit);
+    set(ui.els.diagSuggest, d.suggestShown);
+
+    /* v0.4.1：输入镜像自查 —— 是否依赖组件实例恒为「否」，并列出最近逐次输入 */
+    const modeText = (m) => (m === 'auto' ? '自动换算' : m === 'layer' ? '浮层点选'
+      : m === 'vm' ? '组件等价换算' : m === 'none' ? '未命中' : (m || '—'));
+    if (ui.els.diagMirror) {
+      ui.els.diagMirror.textContent = d.lastMirror
+        ? (modeText(d.mirrorMode) + '：' + d.lastMirror)
+        : '尚未发生换算';
+    }
+    set(ui.els.diagMirrorCount, d.mirrorCount);
+    if (ui.els.diagDeps) {
+      ui.els.diagDeps.textContent = d.depsVm === false ? '否（不读官网实例）' : (d.depsVm ? '是' : '—');
+    }
+    if (ui.els.diagMirrorLog) {
+      const log = Array.isArray(d.mirrorLog) ? d.mirrorLog : [];
+      ui.els.diagMirrorLog.textContent = log.length
+        ? ('逐次输入日志：\n' + log.slice(-8).map((x) => {
+          const t = x && x.time ? String(x.time) : '';
+          return '· ' + t + ' 输入「' + (x.input || '') + '」→ 命中 ' + (x.hits || 0)
+            + (x.fill ? ' → 填入「' + x.fill + '」' : '（未换写）')
+            + ' [' + (x.mode || 'none') + ']'
+            + (x.usedVm ? ' 依赖实例' : ' 不依赖实例');
+        }).join('\n'))
+        : '逐次输入日志：暂无';
+    }
   }
 
   function bindBus() {
@@ -843,6 +990,12 @@
     bus.addEventListener('notice', (ev) => {
       const d = ev.detail || {};
       if (d.message) showNotice(d.message, d.level);
+    });
+
+    /* v0.3.9：搜索桥接诊断快照（词库条数 / 最近输入与命中数） */
+    bus.addEventListener('diag', (ev) => {
+      data.bridgeDiag = ev.detail || null;
+      renderDiag(data.bridgeDiag);
     });
 
     bus.addEventListener('rate', (ev) => {

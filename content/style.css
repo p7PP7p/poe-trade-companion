@@ -633,3 +633,53 @@
   opacity: 1;
   transform: translate(-50%, 0);
 }
+
+/* ---------------------------------------------------------- v0.3.9 诊断页 */
+.ptc-diag {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ptc-diag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--ptc-bg-3);
+  border: 1px solid rgba(58, 46, 34, 0.9);
+  font-size: 12px;
+}
+
+.ptc-diag-k {
+  color: var(--ptc-text-dim);
+  flex: 0 0 auto;
+}
+
+.ptc-diag-v {
+  color: var(--ptc-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 62%;
+}
+
+/* v0.4.1：输入镜像逐次日志（多行只读展示） */
+.ptc-diag-log {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #c9c2b4;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

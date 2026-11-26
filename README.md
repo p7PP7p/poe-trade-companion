@@ -1,8 +1,21 @@
+﻿---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: 1005a95e2fac3584a3126ed2e10eee75_b1e1253fe89b11f1aa8b525400dc9a98
+    ReservedCode1: 2IVhoRIH7r8cFTLxeJd1rFOZpufjuBODGjduaZbrk48PLKoJ9lvBwIy8HE1Pnq+QBx035dLxQ6tyb1h0PGFVBLYjnw2MxxZdlLCe+ZkyeQGMqEF2rNavszQy6vFbqDro7ZNw1MU3S6EOraN/kI/lZYHbch1gzsE1kJFd/IvkE6y1uyWpm7rzbAa2UAE=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: 1005a95e2fac3584a3126ed2e10eee75_b1e1253fe89b11f1aa8b525400dc9a98
+    ReservedCode2: 2IVhoRIH7r8cFTLxeJd1rFOZpufjuBODGjduaZbrk48PLKoJ9lvBwIy8HE1Pnq+QBx035dLxQ6tyb1h0PGFVBLYjnw2MxxZdlLCe+ZkyeQGMqEF2rNavszQy6vFbqDro7ZNw1MU3S6EOraN/kI/lZYHbch1gzsE1kJFd/IvkE6y1uyWpm7rzbAa2UAE=
+---
+
+
+
 # PoE Trade Companion — 市集增强（Chrome / Edge 扩展）
 
 面向《流放之路》国际服官方市集（https://www.pathofexile.com/trade）的浏览器增强扩展，基于 **Manifest V3**，界面全中文。
 
-当前版本：**0.3.5**（筛选器搜索框支持**中英双向匹配**：输入中文能命中对应选项、输入英文照常命中，且无论中英命中，提交给官网的查询值始终是官网期望的英文枚举 / 选项 id；v0.3.3 的「加载中」修复与 v0.3.4 的汉化补齐均不回退）。当前适配赛季：**Covens（0.3.1）**，赛季名与接口路径可通过远端配置热更新，无需重新提审发版。
+当前版本：**0.4.1**（中文检索改为不依赖官网组件实例的「输入镜像」：筛选搜索框输入含中文且词库命中时，唯一强匹配会在输入静止 360ms 后把输入值换算成官网原生过滤能命中的英文串并派发 input/change，多候选则弹出「中文（English）」自绘浮层供点选；浮层触发条件只看「含 CJK 且词库有命中」，不再读取官网下拉候选数量，因此官网 React 重渲染或下拉结构变化都不会让中文检索整条链路静默失效。同时保证官网下拉项仍显示双语、提交给官网的 query 恒为英文、纯英文输入零干预、输入法组合期零介入，输入框被换算成英文后通过 `data-ptc-query-zh`、title 与「中文检索：中文 → 英文」提示条保留用户可见的中文原文，并在控制台与诊断页输出逐次输入日志（输入值 / 命中数 / 替换值 / 是否依赖组件实例）。v0.4.0 的 Cloudflare 误判修复与启动自检、0.3.9 的双语候选浮层、0.3.7 物品名双语、0.3.5 双向匹配、0.3.6 输入法兼容均不回退）。当前适配赛季：**Covens（0.3.1）**，赛季名与接口路径可通过远端配置热更新，无需重新提审发版。
 
 ---
 
@@ -20,6 +33,12 @@
 | 回归修复（0.3.3） | ② **汉化被 React 冲掉**：DOM 层聚合翻译原本把命中元素的子节点整体摘除再追加中文节点，官网 React 持有的文本节点被移除后，后续 diff/commit 找不到目标节点、更新写不进真实 DOM，界面回退英文且结果区渲染中断。0.3.3 改为**就地改写 `nodeValue`**：保留每个原始文本节点的身份与父子关系，只改内容；聚合写入的节点加独占锁，避免聚合通道与逐节点通道互相覆盖；关闭汉化时按快照原样还原 |
 | 筛选项补全（0.3.2） | 官方筛选器里大量选项由「已知词条 + 已知词条」拼装而成，逐条登记会无限膨胀，故新增**分词组合兜底**：先把 `Sell (Any)`、`Damage / 100%`、`One-Handed melee Weapon`、`Claws (Claw)` 按标点与括号切分，再对单词做贪心最长匹配、用词库拼装译文（括号转全角、数值前后自动补空格）；任一单词未命中即整体放弃、保留英文原文，绝不产出半中半英。DOM 层与数据层（`inject.js`）同一套算法 |
 | 搜索框中英双向匹配（0.3.5） | 筛选器全量搜索框与快捷列表支持中英文双向检索：输入「青玉护身符」能命中 `Turquoise Amulet`、输入「细剑」能定位 `weapon.rapier`，输入英文仍按原逻辑命中；匹配阶段在内存中完成换算，`option.id` / `filter.id` / 提交的查询 JSON 一律保持官网英文枚举，不会因中文输入把查询值改写成中文而导致结果为空 |
+| 输入法组合输入兼容（0.3.6） | 用中文输入法打字时，拼音尚未上屏（候选未确认）阶段脚本完全不介入：不换算、不改写输入框内容、不派发输入事件，并取消此前已排队的兜底改写；只有字符真正上屏后才补做候选匹配，输入过程不再被打断 |
+| 物品名双语与中文检索（0.3.7） | 新增 4010 条基底/物品类型与 1241 条物品名中文词库（按官方数据 id 对齐，基底 85.6%、名称 84.5% 覆盖）。结果区的物品名与基底名改为「中文（English 原文）」双语展示，中文与英文同时保留可读；搜索时输入中文物品名（如「绞杀之息」「黑曜护身符」）在提交前被换算为官网英文原文再发出，`whisper`、`type` 枚举、复制内容与查询 JSON 中的机器值始终为英文原文 |
+| 搜索框中文模糊检索（0.3.9） | 中文检索不再要求完整输入：前缀与子串都可命中（「女王的饥」→「女王的饥饿」→ `The Queen's Hunger`），候选浮层按「中文（English 原文）」展示，点选后只往输入框填英文原文并派发 `input`/`change`，交给官网原生逻辑提交，查询值始终为英文；组件实例拿不到或 `filter` patch 失败时改用自绘浮层兜底，不依赖 multiselect 内部实现；中文输入法组合期不介入，纯英文输入原样透传，候选按分数排序并过滤机器标识，不产出半中半英 |
+| 中文检索输入镜像（0.4.1） | 中文检索不再依赖官网下拉候选数量与 Vue 组件实例，改为「输入镜像」：输入含 CJK 且词库命中时，唯一强匹配在输入静止 360ms 后换算为英文原文填入并派发 input/change，官网原生过滤随即命中；多候选弹自绘浮层列「中文（English）」由用户点选，选中填英文原文。输入框保留 `data-ptc-query-zh`、title 与「中文检索：中文 → 英文」提示条，提交值恒为英文；纯英文输入零干预、输入法组合期零介入；控制台与诊断页输出逐次日志（输入值 / 命中数 / 替换值 / usedVm） |
+| 挑战页误判修复与启动自检（0.4.0） | v0.3.8 为躲 Cloudflare 卡死，把 `script[src*=challenge-platform]`、`window._cf_chl_opt`、标题含「安全验证 / Just a moment」都当成挑战页凭据；这些痕迹在正常交易页同样常驻，导致桥接与汉化在正常页被整体停用（中文检索、汉化全失效）。0.4.0 收紧判定：只认 `/cdn-cgi/` 跳转、`#challenge-form`、`#cf-challenge-running`，或「标题是验证页句式 **且** 页面无 PoE 应用根节点」；判定为挑战页时仅临时卸载 hook，巡检发现挑战消失且应用根出现后自动重装，用户无需重开页面。同时新增启动自检：控制台打印 `[PTC v0.4.0] inject/bridge/localizer ...` 摘要，`window.__PTC_STATUS__` 与 `documentElement[data-ptc-status]` 记录版本、各脚本 started、词库/反向索引条数、hooks 安装状态与 abortReason，侧栏「诊断」页显示运行版本与中止原因 |
+| 桥接诊断（0.3.9） | 侧栏新增「诊断」Tab：显示桥接版本、词库条数、反向索引条数、精确枚举条数、物品词库条数，以及最近一次输入原文 / 命中候选数 / 已提交的「中文 → English」映射，并提供刷新按钮，便于自查中文检索未命中时是词库缺失还是浮层未生效 |
 | 悬浮球与侧栏 | 页面右侧可拖拽悬浮球，点击展开 Shadow DOM 抽屉侧栏（也可用快捷键 `Ctrl+Shift+E`），样式与站点完全隔离 |
 
 侧栏包含三个 Tab：**价格分析**（含批量估价）/ **快速估价** / **收藏追踪**。
@@ -28,7 +47,7 @@
 
 ## 2. 安装（加载已解压扩展）
 
-1. 解压 `poe-trade-companion-v0.3.3.zip`（或直接使用 `poe-trade-companion/` 目录，zip 内顶层目录为 `poe-trade-companion/`）。
+1. 解压 `poe-trade-companion-v0.4.1.zip`（或直接使用 `poe-trade-companion/` 目录，zip 内顶层目录为 `poe-trade-companion/`）。
 2. Chrome 打开 `chrome://extensions/`（Edge 为 `edge://extensions/`）。
 3. 打开右上角 **开发者模式**。
 4. 点击 **加载已解压的扩展程序**，选择解压出的 `poe-trade-companion` 目录（含 `manifest.json` 的那一层）。
@@ -105,7 +124,7 @@
 | 物品属性字段 | `Item Level 86`、`Minimum Physical Damage`、`Damage per Second` | 物品等级 86、最低物理伤害、每秒伤害 |
 | 属性与词缀短语 | `60% increased Armour`、`Adds 25 to 40 Physical Damage` | 护甲提高 60%、附加 25 至 40 物理伤害 |
 
-**不翻译的内容**（有意保留英文）：卖家备注与角色名、装备的英文基底名与暗金名（词库未收录时）、聊天/私聊文本、URL 与数值本身。扩展不会替换 `innerHTML` 结构（仅在聚合命中时合并该元素的文本内容），页面事件绑定与站点脚本状态不受影响。
+**不翻译的内容**（有意保留英文）：卖家备注与角色名、聊天/私聊文本（whisper）、`type` 等机器枚举与接口字段、URL 与数值本身；装备的物品名与基底名自 0.3.7 起按「中文（English 原文）」双语展示，英文原文始终在括号内保留，词库未收录的条目则整体保持英文。扩展不会替换 `innerHTML` 结构（仅在聚合命中时合并该元素的文本内容），页面事件绑定与站点脚本状态不受影响。
 
 ### 4.2 词库构成与覆盖率
 
@@ -202,7 +221,7 @@
 - **界面字段高覆盖**：筛选器面板、Tab、按钮、区块标题、下拉选项、物品类别、状态词、分页、价格单位等界面固定文案已按官网实测取样验证，命中即翻译，不经词块拼接；
 - **筛选词缀高覆盖**：筛选器里的词缀/属性下拉（`+#% to Fire Resistance`、`Adds N to M Physical Damage`、`#% increased Armour` 等）由术语层 + 句式模板共同覆盖；
 - **装备词缀已高覆盖**：0.3.1 起物品面板与结果行里的显式/固有/工艺/附魔词缀，改由数据层按词缀 `hash` 直查 18193 条官方词缀词库后回填数值，实测官方真实搜索结果 51 行词缀 **50 行中文化（98%）且数值 100% 一致**；个别复合词缀（如多段拼接的独特词缀）仍保留英文；
-- **英文基底名与暗金名保留英文**：装备名、暗金名默认不译（保留可检索性与玩家习惯），可在自定义词库中按 `英文名=中文名` 自行补充；
+- **物品名与基底名走双语**：0.3.7 起结果区的物品名/基底名展示为「中文（English 原文）」，中文供阅读、括号内英文保留可检索性与玩家习惯；词库按官方数据 id 对齐构建，基底覆盖 85.6%、名称覆盖 84.5%，未命中条目整体保留英文原文（详见 4.9）；
 - **卖家备注、角色名、聊天文本**不翻译。
 
 ### 4.6 筛选器搜索框中英双向匹配（0.3.5）
@@ -219,9 +238,26 @@
 
 自测覆盖 36 项（反向词典、精确枚举、双向匹配、两种引擎补丁、查询值不变量、兜底改写）与数据层回归 12 项，全部通过。仍需真实浏览器端到端复验：不同赛季筛选项集合变化时，以 id 型映射为准可自动适配，缺失项会保留英文原样而非误译。
 
+### 4.7 输入法（IME）组合输入兼容（0.3.6）
+
+**问题现象**：用中文输入法在全量搜索框打字时，字符还没上屏（仍处于拼音候选状态）就自动加载/替换成了其他内容，输入被打断。
+
+**根因**：输入法上屏前的事件序列是 `compositionstart → (compositionupdate + input)* → compositionend → input`，组合阶段的 `input` 事件里 `el.value` 是拼音串（如 `zitai`、`qingyu`）。0.3.5 的兜底逻辑把它当成英文查询去换算，一旦判定「零候选」就在用户还没选定候选词的瞬间改写输入框并自派 `input` 事件，既打断输入法，也把拼音串留在框里。
+
+**同时修正的连带缺陷**：`searchRoot()` 从输入框向上找容器时，最先遇到的是 `multiselect__tags` 子块，而候选列表渲染在兄弟节点 `multiselect__content-wrapper` 内，导致 `countOptions()` 恒为 0 —— 即使站点已经给出候选，也会被误判「无结果」而触发改写。现在优先返回 class 精确含 `multiselect` 的组件根节点，模糊匹配仅作兜底。
+
+| 环节 | 做法 |
+| --- | --- |
+| 组合状态登记 | `compositionstart` / `compositionupdate` / `compositionend` 全部在**捕获阶段**监听，第一时间记录输入框组合状态（`__ptcComposing`）与全局组合计数，晚于站点自身处理会误判 |
+| 组合期零介入 | 组合期间：不换算、不改写 `value`、不写 `data-ptc-query-zh` / `title`、不派发任何 `input` 事件；`input` 监听直接返回，并**取消组合开始前已排队的兜底定时器** |
+| 匹配层让行 | 组合期间 `filter` 补丁把判定交还站点原生匹配，不用拼音串去扩展候选 |
+| 上屏后才补候选 | 仅在 `compositionend` 之后做一次候选检查（60ms），站点自身随后的 `input` 也走同一条路径，经 `tried` 去重不会重复改写 |
+| 内核差异兜底 | 组合标记缺失的内核：`isComposing`、`inputType = insertCompositionText / deleteCompositionText`、`keyCode 229` 任一命中即视为组合中；`compositionend` 后个别内核仍返回 `isComposing: true` 时，若值已含中日韩字符且刚上屏则放行 |
+| 能力不回退 | 中英双向匹配、`option.id` / `filter.id` / `type` 枚举、`~price` 等机器标记与提交给官网的查询值一律不变；「英文零候选 → 换中文查询」的原有能力保留 |
+
 ---
 
-### 4.7 自测结论（v0.3.4 ~ v0.3.5）
+### 4.8 自测结论（v0.3.4 ~ v0.3.6）
 
 | 测试 | 方法 | 结果 |
 |---|---|---|
@@ -242,6 +278,49 @@ v0.3.5 补测（中英双向匹配）：搜索桥自测 36 项 + 数据层筛选
 - 兜底改写：中文输入零候选时输入框被换成英文等价查询并出现候选，原始输入保留在 `data-ptc-query-zh`；英文输入反向换成中文同样能有候选；原生已命中或无等价词时一律不改写；
 - 覆盖率：以「带 id 且无可译文案」的最严苛样本 252 项验证，选项汉化覆盖与 v0.3.4 持平（252/252），仅修正了此前 36 处位置键错配。
 
+v0.3.6 补测（IME 组合输入）：新增组合序列自测 27 项全部通过（脚本 `ime-selftest.js`，证据 `selftest-ime-v0.3.6.json`），v0.3.5 搜索桥 36 项与数据层 12 项回归全绿。要点：
+
+- 组合期零介入：`compositionstart` 后连续模拟 4 次 `input(isComposing:true, insertCompositionText)` 击键并等待 300ms（远超 90ms 兜底延迟），输入框值、`data-ptc-query-zh`、`title` 全部保持原样，主动派发 `input` 次数为 **0**；
+- 排队改写被取消：非组合输入先排入 90ms 兜底后立刻 `compositionstart`，等待 300ms 未被改写；
+- 匹配层让行：组合期间 `filter(option, text, 'qingyu')` 与 `filter(option, text, '青玉护身符')` 均返回 `false`（交还原生匹配），`compositionend` 后恢复 `true`；
+- 内核差异：只发 `inputType=insertCompositionText`、无 `compositionstart` 的序列同样被判定为组合中，未触发改写；
+- 上屏后补候选：主路径（filter 补丁）命中候选且输入框保留中文原文、无多余事件；兜底路径（无组件实例）在上屏后 60ms 把「青玉护身符」换成 `turquoise amulet`、派发且仅派发 1 次 `input`，时间戳晚于 `compositionend`；
+- 能力不回退：`青玉护身符` / `青玉` / `turquoise` 三向命中、`zhToEn` / `enToZh` 换算、`option.id = turquoise-amulet` 与 `type = amulet` 全程未被改写。
+
+### 4.9 物品名与基底名双语（0.3.7）
+
+**为什么之前中文搜不到物品**：v0.3.5/0.3.6 的双向索引只覆盖筛选器选项与通用词条，物品名与基底名在结果区与数据层一直被刻意保留英文，词库里根本没有「绞杀之息 → Stranglegasp」这类映射，所以中文输入无论如何都匹配不上。0.3.7 补的就是这一层。
+
+**词库构建**：`lib/i18n-items-zh.js`（约 190 KB），键为官网英文原文、值为国服官方中文名，按官方数据 id 对齐（`items_intl.json` 国际服 × `items_cn.json` / `items_tw.json` 国服台服同 id），再用 `poedb` 分类页与单条目页补齐 poedb 侧中文名（长段名称需段对齐且相似度达标才采纳，超过 25 字的长段直接丢弃以防巧合匹配；`monster` / `currency` / `map` / `card` 段不参与自动对齐）。
+
+| 维度 | 词条数 | 官方样本覆盖 |
+|---|---|---|
+| 基底名 / 物品类型（`type`） | 4010 | 3665 / 4284 = **85.6%** |
+| 物品名（暗金等专有名，`name`） | 1241 | 1240 / 1467 = **84.5%** |
+
+**展示形态**：结果区（`/api/trade/fetch/*` 响应）的 `item.typeLine`、`item.baseType`、`item.name` 改写为 `中文（English）`，例如 `青玉护身符（Turquoise Amulet）`、`兄弟会徽章（Badge of the Brotherhood）`；已是双语形态的值不会重复叠加。
+
+**中文检索链路**：提交查询前把 `query.name` / `query.type` 中的中文按词库换成英文原文（`fetch` 与 `XMLHttpRequest` 两条通道都覆盖），因此中文与英文输入走的是同一个官网接口、同一套枚举；`zhToEn` 反向索引也把物品词库并入，筛选器搜索框直接输入中文物品名即可命中。
+
+**未命中降级策略**（逐层保守）：
+
+1. 词库精确命中 → 换英文、展示双语；
+2. 未命中但通用词库能整词命中 → 仅做整词级替换，不改物品身份；
+3. 仍未命中 → **展示与提交一律保留英文原文，不做任何猜测拼接**；中文片段（如只打「黑曜」）刻意不做模糊匹配，因为同一片段常对应多个物品，错配比查不到更糟。
+
+**明确不动的东西**：`listing.whisper` 私聊文本、`listing.price.type`（`~price` / `~b/o`）、`item.extended`、`frameType`、`icon`、`stackSize`、结果 `id`，以及侧栏复制按钮取的值——复制与 whisper 直接取 `entry.whisper` / `item.whisper` 原文字段，不读展示名，因此复制出的私聊文本永远是官网英文原文。
+
+**自测结论**：新增自测 46 项全部通过（脚本 `selftest-items-v0.3.7.js`，证据 `selftest-items-v0.3.7.json`）；同时复跑 v0.3.6 组合输入/双向匹配 27 项、v0.3.4 数据层与 DOM 层 36 项，均未回归。要点：
+
+- 双语形态：`typeLine` / `baseType` / `name` 均为 `中文（English）`，英文原文完整保留在括号内；
+- 不变量：whisper、`frameType`、`icon`、`extended`、`stackSize`、结果 `id` 与英文输入时完全一致；
+- 幂等：喂入已是双语的值不产生「中文（中文（English））」叠加；
+- 中文检索：`绞杀之息` → `Stranglegasp`、`黑曜护身符` → `Onyx Amulet` 在 `fetch` 与 XHR 两条通道均正确换算，其它查询字段（`status`、`sort`）与请求头不受影响；
+- 英文不回归：英文输入原样透传（大小写不变）；词库外中文原样提交；
+- IME 不回归：组合输入期间输入框值不被改写，上屏后仍保留用户原文。
+
+> 仍需真实浏览器端到端复验：词库覆盖对赛季新增物品存在滞后，新赛季物品在词库更新前会整体保持英文（可正常用英文检索）；结果区双语展示依赖官网 `typeLine` / `name` 字段结构，官网改版需同步调整。
+
 ## 5. 赛季自适应机制
 
 优先级：**本地缓存（未过期） → 远端 `config/remote.json` → 内置兜底常量**。
@@ -259,10 +338,13 @@ v0.3.5 补测（中英双向匹配）：搜索桥自测 36 项 + 数据层筛选
 
 ```
 poe-trade-companion/
-├─ manifest.json              # MV3 清单（v0.3.5）
+├─ manifest.json              # MV3 清单（v0.3.7）
 ├─ background.js              # Service Worker：汇率缓存、收藏巡检（alarms）、通知、远端配置与远端词库缓存
-├─ config/remote.json         # 远端配置模板（可直接发布到 GitHub raw）
-├─ config/i18n-zh.json        # 中文词库样例（由内置词库导出，可托管后作为远端热更新词库）
+├─ config/
+│  ├─ remote.json             # 远端配置模板（可直接发布到 GitHub raw）
+│  ├─ i18n-zh.json            # 中文词库样例（由内置词库导出，可托管后作为远端热更新词库）
+│  ├─ i18n-filters-zh.json    # 筛选器选项映射（id 型枚举键 + __N 顺序兜底键）
+│  └─ i18n-stats-zh.json      # 官方词缀词库（18193 条，按 hash 直查）
 ├─ icons/                     # 16 / 48 / 128 图标
 ├─ lib/
 │  ├─ selectors.js            # 多候选选择器与容错定位
@@ -271,10 +353,15 @@ poe-trade-companion/
 │  ├─ query-builder.js        # 搜索请求体与 URL 构造
 │  ├─ rate-limiter.js         # 请求队列（最小间隔 260ms）+ 429 退避重试
 │  ├─ i18n-dict.js            # 内置中文词库：uiDict / fullDict / patterns / byId
+│  ├─ i18n-filters-zh.js      # 筛选项中文词库（选项、类别、属性标志、交易面板）
+│  ├─ i18n-items-zh.js        # 物品名/基底名中文词库（0.3.7，按官方数据 id 对齐，4010 + 1241 条）
+│  ├─ i18n-stats-zh.js        # 官方词缀词库加载
+│  ├─ i18n-stats-tpl.js       # 词缀中文模板与数值回填规则
+│  ├─ stats-dict.js           # 词缀 hash → 中文模板索引
 │  └─ remote-config.js        # 远端配置拉取、缓存、过期与兜底
 ├─ content/
-│  ├─ inject.js            # 数据层改写 + 筛选映射
-│  ├─ search-bridge.js      # 筛选搜索框中英双向匹配（0.3.5）               # MAIN world：hook fetch / XHR，回传 search / fetch 响应；数据层汉化（/api/trade/data/*）
+│  ├─ inject.js               # MAIN world：hook fetch / XHR，改写 search / fetch / data 响应（含 0.3.7 物品名双语）
+│  ├─ search-bridge.js        # MAIN world：筛选搜索框中英双向匹配（0.3.5）、IME 组合输入兼容（0.3.6）
 │  ├─ content.js              # ISOLATED world：消息桥接、league 提取、行内徽标、快捷键、悬浮球、汉化配置下发
 │  ├─ localizer.js            # DOM 层汉化：文本节点与属性改写、句式模板、原文快照与还原
 │  ├─ estimator.js            # 估价流程（取样 → 归一 → 统计）
@@ -348,6 +435,11 @@ poe-trade-companion/
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.3.9 | 2026-11-25 | 筛选搜索框中文检索真正可用：`search-bridge.js` 新增 `zhScore` 打分（精确 1000 / 前缀 720 / 子串 420 / 反向包含 260·160）与 `zhLookup` 跨物品、筛选、通用三套词库聚合候选，中文按前缀与子串模糊匹配（「女王的饥」命中「女王的饥饿」），反向包含要求键 ≥2 字且多打字数 ≤6，避免长串被单字键（如「的」）误命中产出垃圾候选；候选以「中文（English 原文）」渲染于自绘浮层（不依赖 multiselect 实例），点选后只填英文原文并派发 `input` + `change`，提交值仍为官网英文枚举；组合期零介入、纯英文输入不触发浮层也不改写、`option.id` / `type` / `~price` 等机器值不动；侧栏新增「诊断」Tab（版本 / 词库 / 反向索引 / 精确枚举 / 物品词库条数 / 最近输入与命中数 / 最近提交映射）+ 刷新按钮，快照经 `data-ptc-diag` 属性跨 world 传给侧栏；自测 bridge 40 项、诊断页 16 项、诊断链路 8 项、物品词库 46 项全绿，IME 与 v0.3.5 旧断言 3 + 5 项因「零候选取浮层替代直接改写」的既定行为变更而按预期差异处理 |
+| 0.3.8 | 2026-11-25 | 修复安装后访问官网卡在 Cloudflare「正在进行安全验证」：`manifest.matches` 严格限定 `https://www.pathofexile.com/trade*`，人机验证页三脚本入口守门零注入；`inject.js` 的 fetch/XHR hook 改为惰性安装（页面解析后再挂载），非交易接口原样透传，hook 内异常立即 `restoreNative`；安全套 29/29、items 46/46、v034-ship 36/36、IME 27/27 通过 |
+| 0.3.7 | 2026-11-25 | 物品名与基底名双语 + 中文检索：新增 `lib/i18n-items-zh.js`（基底/物品类型 4010 条、物品名 1241 条，按官方数据 id 对齐，覆盖 85.6% / 84.5%）；结果区 `typeLine` / `baseType` / `name` 改为「中文（English 原文）」；提交前把 `query.name` / `query.type` 的中文换成英文原文（`fetch` + XHR 双通道），`zhToEn` 并入物品词库；whisper、`type` 枚举、复制内容与查询机器值保持英文原文，中文片段不做模糊猜测匹配；自测 46 项新增 + 27 项 IME + 36 项数据层/DOM 回归全绿 |
+| 0.3.6 | 2026-11-25 | 输入法组合输入兼容：`compositionstart → compositionupdate → compositionend` 全程零介入（不换算、不改写输入框、不派发 input、写 `data-ptc-query-zh`），取消已排队的兜底改写；`isComposing` / `inputType=insertCompositionText` / `keyCode 229` 任一命中即判组合中；上屏后才补候选；自测 27 项全绿，v0.3.5 双向匹配与查询值不变量不回退 |
+| 0.3.5 | 2026-11-25 | 筛选器搜索框中英双向匹配：新增 `content/search-bridge.js`（MAIN world），由 `i18n-dict` 建中文→英文反向索引、`config/i18n-filters-zh.json` 的 id 型枚举键建精确索引，包装 Vue multiselect `filter` 四路补判（展示中文 / 英文原文 / 词库反查 / 精确枚举），无实例时 input 兜底改写；`option.id` / `filter.id` / `type` / `~price` 等查询值与机器枚举一律不动；搜索桥自测 36 项 + 数据层回归 12 项全过 |
 | 0.3.4 | 2026-11-25 | 补齐汉化缺口：① 结果区展示内容（物品属性名/属性值/词缀行/技能说明 descrText、secDescrText）在数据层按展示字段改写，数值型属性值走中文语序规则（`48% of base` → `基础值的 48%`）；② 筛选列表剩余英文补录（物品类别与武器基底、Sell/Rarity/Damage 等属性标志、Gem Level/Fractured/Veiled、Seller Account/Buyout or Fixed Price 等交易面板项）；③ DOM 层对含 `~` 的机器标记（`~price`/`~b/o`）一律跳过，避免价格行被半汉化成「~价格」破坏官网枚举；④ 保持 type 字段与暗金名/基底名英文原样，查询链路与「加载中」修复不回退 |
 | 0.3.3 | 2026-11-24 | 修复 0.3.2 两处严重回归：① 查询结果永久「加载中」——0.3.2 把 `TEXT_FIELDS` 扩到 `type`，`listing.price.type` 的机器枚举 `~price`/`~b/o` 被译成 `~价格`，官网解析失败停在加载中；② 汉化被 React 冲掉——聚合翻译改为就地改写文本节点 `nodeValue` 并加独占锁，`restore` 按快照还原；新增 `FILTER_EXTRA` 57 条（`Any / Base` + 武器基底、开启实时搜索等） |
 | 0.3.2 | 2026-11-24 | 修复实装后大量筛选项仍为英文：官方筛选器下拉选项多为「已知词条 + 已知词条」拼装（`Sell (Any)`、`Rarity (Any)`、`Damage / 100%`、`Critical Chance / 100%`、`One-Handed melee Weapon`、`Any Dagger`、`Claws (Claw)`、`Rune Dagger` 等），逐条登记会随赛季无限膨胀，故新增**受约束的分词组合兜底**（DOM 层与数据层同一套算法：按标点/括号切词 → 单词贪心最长匹配 → 括号与数值自动排布 → 残留英文即丢弃）；新增 `FILTER_EXTRA` 词层 167 条（下拉项、物品类别细分、属性标志、交易面板、神庙房间名）与 14 条动态后缀模板；数据层修正 `type` 字段保护——物品与类别数据的 `type` 是查询枚举（`Claw` / `Rune Dagger` / `Chaos Orb`），改写会让页面构造出中文查询值导致搜索失效，现只改 `text` / `label`；DOM 层新增结果区跳过规则，物品名与基底名继续保持英文。验证：4 张实装截图的 86 项漏翻清单中 82 项命中（4 项为暗金名，刻意保留），jsdom 端到端模拟筛选面板 42 条下拉项残留英文 0，结果行基底名未被误改 |
@@ -355,3 +447,5 @@ poe-trade-companion/
 | 0.2.2 | 2026-11-24 | 修复官网汉化失效：根因为 React 把按钮/标题拆成多个子元素与文本节点，旧版 TreeWalker 逐节点匹配时单个节点文本不完整，导致界面固定字段整体漏翻。新增「父元素整块聚合匹配」（取 `innerText` 整段命中后合并为单文本节点）并把逐节点匹配降为兜底；词库重构为分层结构（界面 148 / 类别 84 / 通货名 32 / 术语 253 / 补漏 53 / 补充 42）、句式模板扩至 98 条（含 14 条动态数字/前缀模板：`Listed N days ago`、`N in stock`、`Page N of M`、价格与通货单位等）；**关闭低质量词块拼接兜底**，未命中一律保留英文原样，杜绝「获得 # 生命 每 敌人」这类半中半英输出；默认档位由「仅界面文案」改为「界面文案 + 物品名称与词缀」，升级时自动迁移一次；成果验证：82 条官网高频文案 100% 命中 |
 | 0.2.0 | 2026-11-24 | 新增官网市集页面汉化：双通道（数据层改写 `/api/trade/data/*` + DOM 层文本/属性翻译）、内置词库 505 条（界面 277 / 物品与词缀 228）+ 19 条句式模板 + 8 条 id 映射、自定义词库与远端词库热更新（缓存 6 小时）、三档开关与一键还原英文；既有价格增强、批量估价、收藏追踪、复制私聊、赛季热更新能力保持不变 |
 | 0.1.0 | 2026-11-24 | 首个版本：行内价格徽标、批量估价、收藏降价追踪、一键复制私聊、赛季远端自适应 |
+*（内容由AI生成，仅供参考）*
+*（内容由AI生成，仅供参考）*

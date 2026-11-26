@@ -1,4 +1,4 @@
-/**
+﻿/**
  * content/content.js — ISOLATED world 编排层
  *  - 解析 league、加载设置与远端配置
  *  - 接收 inject.js 的数据，计算价格统计，事件分发给 panel.js
@@ -65,7 +65,9 @@
     pending: new Map(),
     reqSeq: 0,
     badgeObserver: null,
-    statBuffer: 0
+    statBuffer: 0,
+    // v0.3.9：搜索桥接诊断信息（MAIN world 写入，ISOLATED world 读取快照）
+    bridgeDiag: null
   };
   PTC.state = state;
 
@@ -158,6 +160,103 @@
     } catch (e) {
       /* ignore */
     }
+  }
+
+  /* ------------------------------------- v0.3.9 搜索桥接诊断（只读快照，供侧栏自查） */
+
+  /** 从 documentElement 属性读桥接快照（MAIN world 变量在本世界不可见） */
+  function readBridgeDiag() {
+    try {
+      const raw = document.documentElement.getAttribute('data-ptc-diag');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* ------------------------------------- v0.4.0 启动状态（版本 / 各脚本是否启动 / 中止原因） */
+
+  /** MAIN world 的 inject / search-bridge 通过 documentElement[data-ptc-status] 转出状态 */
+  function readPageStatus() {
+    try {
+      const raw = document.documentElement.getAttribute('data-ptc-status');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * 汇总三个 MAIN/ISOLATED 脚本的启动状态。
+   * inject 与 search-bridge 在 MAIN world（只能读属性快照）；
+   * localizer 与 content 同处 ISOLATED world（可直接调 getStatus 取实时值）。
+   */
+  function collectStatus() {
+    const page = readPageStatus() || { version: '', scripts: {} };
+    const scripts = Object.assign({}, page.scripts || {});
+    try {
+      const L = (window.PTC && window.PTC.Localizer) || null;
+      if (L && typeof L.getStatus === 'function') {
+        const st = L.getStatus();
+        scripts.localizer = Object.assign({}, scripts.localizer || {}, {
+          version: st.version,
+          started: st.started,
+          enabled: st.enabled,
+          abortReason: st.abortReason,
+          dictSize: (scripts.localizer && scripts.localizer.dictSize) || 0,
+          challenge: st.challenge
+        });
+      }
+    } catch (e) {
+      /* localizer 未加载 */
+    }
+    let extVersion = '';
+    try {
+      extVersion = (chrome && chrome.runtime && chrome.runtime.getManifest)
+        ? chrome.runtime.getManifest().version : '';
+    } catch (e) {
+      extVersion = '';
+    }
+    scripts.content = { version: extVersion, started: true, enabled: !!(state.settings && state.settings.enabled !== false) };
+    return {
+      version: page.version || extVersion || '',
+      installedVersion: extVersion,
+      challenge: page.challenge || (scripts.localizer && scripts.localizer.challenge) || null,
+      scripts
+    };
+  }
+
+  function pushBridgeDiag(detail) {
+    const d = detail || readBridgeDiag() || {};
+    const payload = Object.assign({}, d);
+    payload.status = collectStatus();
+    state.bridgeDiag = payload;
+    dispatch('diag', payload);
+  }
+
+  function bindBridgeDiag() {
+    // 桥接脚本每次刷新诊断都会派发该事件；属性兜底用于事件错过的情况
+    window.addEventListener('ptc-bridge-diag', (ev) => {
+      try {
+        pushBridgeDiag(ev && ev.detail ? ev.detail : null);
+      } catch (e) {
+        /* ignore */
+      }
+    }, false);
+    // 任一脚本发布启动状态时同步刷新侧栏诊断页
+    window.addEventListener('ptc-status', () => {
+      try {
+        pushBridgeDiag(null);
+      } catch (e) {
+        /* ignore */
+      }
+    }, false);
+    // 侧栏打开诊断页时主动索取一次最新快照
+    bus.addEventListener('diag-request', () => pushBridgeDiag(null));
   }
 
   /* -------------------------------------------------- 初始化 */
@@ -690,6 +789,9 @@
 
     window.addEventListener('message', onWindowMessage, false);
     document.addEventListener('keydown', onKeydown, true);
+    /* v0.3.9：接收搜索桥接诊断快照，并给侧栏补一次初始值 */
+    bindBridgeDiag();
+    setTimeout(() => pushBridgeDiag(null), 800);
 
     // MAIN world 注入兜底：Chrome <111 或 world:MAIN 未生效时手动注入脚本
     setTimeout(() => {
@@ -776,7 +878,7 @@
     setInterval(() => loadRate(false), 60 * 60 * 1000);
   }
 
-  PTC.content = { state, enhanceRows, init, dispatch, applyI18n, loadStatsDict };
+  PTC.content = { state, enhanceRows, init, dispatch, applyI18n, loadStatsDict, readBridgeDiag, pushBridgeDiag };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });

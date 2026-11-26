@@ -1,4 +1,4 @@
-/**
+﻿/**
  * PoE Trade Companion — 官网市集页面汉化（通道 B：DOM 层）v0.2.2
  *
  * 为什么需要重写（v0.2.2 根因）：
@@ -19,6 +19,66 @@
  */
 (function () {
   'use strict';
+  /* ==========================================================================
+   * v0.4.0 挑战页判定（纠偏 v0.3.8）
+   * 只有文档确实被 Cloudflare 接管才暂停汉化：/cdn-cgi/ 路径、#challenge-form、
+   * #cf-challenge-running，或标题为挑战文案且页面无 PoE 应用根节点。
+   * challenge-platform 脚本 / _cf_chl_opt 在正常交易页常驻，只作诊断信号。
+   * 模块本身始终定义（供侧栏诊断页读状态），是否翻译由 start() 时判定；
+   * 挑战消失后由巡检自动恢复，不再永久停用。
+   * ========================================================================== */
+  var PTC_LOCALIZER_VERSION = '0.4.1';
+  var CHALLENGE_TITLE = /just a moment|请稍候|请稍後|正在验证|正在進行驗證|正在进行安全验证|安全验证|安全驗證|verifying you are human|checking your browser|attention required/i;
+  var APP_ROOT_SELECTOR = '#trade, #app, #root, [data-trade-root], .trade-app';
+  var guardTimer = null;
+  var guardTicks = 0;
+  var guardDelay = 250;
+  var abortReason = '';
+  var lastStatusJSON = '';
+
+  function hasAppRoot() {
+    try {
+      if (document.querySelector(APP_ROOT_SELECTOR)) return true;
+      var body = document.body;
+      if (!body) return false;
+      return !!(body.querySelector('nav, main, [class*="layout"], [class*="filter"]'));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function challengeSignals() {
+    var sig = [];
+    try {
+      if (/\/cdn-cgi\//.test(String(location.href || ''))) sig.push('url:/cdn-cgi/');
+      if (document.getElementById('challenge-form')) sig.push('#challenge-form');
+      if (document.getElementById('cf-challenge-running')) sig.push('#cf-challenge-running');
+      var title = String(document.title || '');
+      if (CHALLENGE_TITLE.test(title)) sig.push('title:' + title);
+    } catch (e) { /* ignore */ }
+    return sig;
+  }
+
+  function isChallengeTakeover() {
+    try {
+      var sig = challengeSignals();
+      if (!sig.length) return false;
+      for (var i = 0; i < sig.length; i++) {
+        if (sig[i].indexOf('title:') !== 0) return true;
+      }
+      return !hasAppRoot();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function isTradePath() {
+    try {
+      return /^\/(trade|trade2)(\/|$)/.test(String(location.pathname || ''));
+    } catch (e) {
+      return false;
+    }
+  }
 
   var SELF = (window.PTC = window.PTC || {});
 
@@ -406,6 +466,7 @@
     }
     start();
     applyAll();
+    publishStatus();
     return summary();
   }
 
@@ -786,8 +847,109 @@
     state.stats = { nodes: 0, translated: 0, collapsed: 0 };
   }
 
+  /**
+   * v0.4.0：启动状态发布（与 inject / search-bridge 共用 documentElement[data-ptc-status] 通道）
+   */
+  function publishStatus() {
+    try {
+      var snap = {
+        version: PTC_LOCALIZER_VERSION,
+        started: !!state.observer,
+        enabled: !!state.enabled,
+        abortReason: abortReason,
+        level: state.level,
+        dictSize: Object.keys(state.dict || {}).length,
+        translated: state.stats.translated,
+        collapsed: state.stats.collapsed,
+        challenge: {
+          takeover: isChallengeTakeover(),
+          hasAppRoot: hasAppRoot(),
+          signals: challengeSignals(),
+          title: String(document.title || ''),
+          path: String(location.pathname || '')
+        }
+      };
+      var W = window.__PTC_STATUS__ = window.__PTC_STATUS__ || {
+        version: PTC_LOCALIZER_VERSION, world: 'main', startedAt: Date.now(), scripts: {}, challenge: null
+      };
+      W.updatedAt = Date.now();
+      W.challenge = snap.challenge;
+      W.scripts = W.scripts || {};
+      W.scripts.localizer = snap;
+      var payload = { version: PTC_LOCALIZER_VERSION, world: 'main', challenge: snap.challenge, scripts: {} };
+      try {
+        var prev = JSON.parse(document.documentElement.getAttribute('data-ptc-status') || '{}');
+        if (prev && prev.scripts && typeof prev.scripts === 'object') payload.scripts = prev.scripts;
+      } catch (e) { /* 首次写入 */ }
+      payload.scripts.localizer = {
+        version: snap.version,
+        started: snap.started,
+        enabled: snap.enabled,
+        abortReason: snap.abortReason,
+        level: snap.level,
+        dictSize: snap.dictSize,
+        translated: snap.translated
+      };
+      var json = JSON.stringify(payload);
+      if (json !== lastStatusJSON) {
+        lastStatusJSON = json;
+        document.documentElement.setAttribute('data-ptc-status', json);
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[PTC v' + snap.version + '] localizer enabled=' + snap.enabled +
+            (snap.abortReason ? ' reason=' + snap.abortReason : '') +
+            ' level=' + snap.level + ' dict=' + snap.dictSize + ' translated=' + snap.translated +
+            ' challenge=' + (snap.challenge.takeover ? 'yes(' + snap.challenge.signals.join(',') + ')' : 'no'));
+        }
+      }
+    } catch (e) {
+      /* 诊断失败不影响汉化 */
+    }
+  }
+
+  function scheduleGuard(delay) {
+    if (guardTimer) return;
+    try {
+      guardTimer = setTimeout(guardTick, typeof delay === 'number' ? delay : guardDelay);
+    } catch (e) {
+      guardTimer = null;
+    }
+  }
+
+  /** 巡检：挑战接管 → 停止观察器并复原；挑战消失 → 重新 start + applyAll */
+  function guardTick() {
+    guardTimer = null;
+    try {
+      if (isChallengeTakeover()) {
+        abortReason = 'challenge';
+        if (state.observer) {
+          try { state.observer.disconnect(); } catch (e) { /* ignore */ }
+          state.observer = null;
+        }
+        try { restore(); } catch (e) { /* ignore */ }
+      } else if (state.enabled && !state.observer) {
+        abortReason = '';
+        start();
+        applyAll();
+      }
+    } catch (e) {
+      /* 巡检异常不影响页面 */
+    }
+    guardTicks += 1;
+    guardDelay = guardTicks <= 40 ? 250 : 1000;
+    publishStatus();
+    scheduleGuard();
+  }
+
   function start() {
     if (state.observer || !document.body) return;
+    /* v0.4.0：挑战页不观察 DOM（只读判定，不改任何节点） */
+    if (isChallengeTakeover()) {
+      abortReason = 'challenge';
+      publishStatus();
+      scheduleGuard();
+      return;
+    }
+    abortReason = '';
     state.observer = new MutationObserver(function (records) {
       // 重入保护：自身改写触发的记录一律忽略，避免翻译→观察→再翻译的递归
       if (!state.enabled || state.applying) return;
@@ -825,6 +987,8 @@
       subtree: true,
       characterData: true
     });
+    publishStatus();
+    scheduleGuard();
   }
 
   function summary() {
@@ -846,6 +1010,17 @@
 
   SELF.Localizer = {
     configure: configure,
+    version: PTC_LOCALIZER_VERSION,
+    getStatus: function () {
+      return {
+        version: PTC_LOCALIZER_VERSION,
+        started: !!state.observer,
+        enabled: !!state.enabled,
+        abortReason: abortReason,
+        challenge: { takeover: isChallengeTakeover(), signals: challengeSignals(), hasAppRoot: hasAppRoot() }
+      };
+    },
+    publishStatus: publishStatus,
     applyAll: applyAll,
     restore: restore,
     translate: translate,
