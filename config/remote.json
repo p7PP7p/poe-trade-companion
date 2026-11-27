@@ -35,7 +35,7 @@
     "searchPath": "/api/trade/search/",
     "fetchPath": "/api/trade/fetch/"
   },
-  "notice": "2026-11-27 v0.5.0：词缀与固定专名词库切换为国服官方简中主源（18204 条词缀 / 1214 条专名），远端热修继续生效。",
+  "notice": "2026-11-27 v0.5.1：补齐物品词库暗金名（items name 1433 条，国服官方简中为主源、基底锚点对齐），「再造恶意」等暗金名可中文检索。远端热修继续生效。",
   "league": "Covens",
   "leagueAliases": {},
   "i18n": {

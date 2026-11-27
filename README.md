@@ -15,7 +15,7 @@ AIGC:
 
 面向《流放之路》国际服官方市集（https://www.pathofexile.com/trade）的浏览器增强扩展，基于 **Manifest V3**，界面全中文。
 
-当前版本：**0.5.0**（词库主源切换为国服官方简体中文：`lib/i18n-stats-zh.js` 全量重构建 18204 条词缀，以国服 `poe.game.qq.com/api/trade/data/stats` 为唯一主源、按 stat id 与国际服英文骨架对齐，台服繁转简仅补国服缺口；`lib/i18n-dict.js` 新增 STATIC 补充层 1214 条固定专名的「英文全名 → 简中」映射（`Chaos Orb → 混沌石`、`Orb of Fusing → 链结石`、`Mirror of Kalandra → 卡兰德的魔镜`），此前内置只以 `chaos` / `fusing` 这类短键收录，英文原文查不到简中；`#` 占位数量与内置模板不一致的 18 条保留内置，避免数值回填错位。新旧词库对比零丢失、零改动，远端热修通道同步更新（`config/i18n-stats-zh.json`、`config/i18n-zh.json`，`remote.json` 中 `i18n.version` 升至 4），后续赛季补词仍无需发版）
+当前版本：**0.5.1**（`lib/i18n-items-zh.js` 物品词库补齐暗金名映射：items 的 `name` 条目由 1241 条增至 **1433 条**，新增 **192 条**暗金名中文对照（如「再造恶意 → Reclaimed Malevolence」）。此前词库只收 `typeLine` 基底名，暗金名仅存在于官方 items 接口的 `name` 字段、不在 stats 中，导致中文搜暗金名零命中；本轮以「基底 type 中英表」为锚点对齐国服与国际服 unique 名，用旧词库 1241 条做一致率校验 **99.8%**，仅写回通过校验的条目，回读验证「再造恶意」「再造」「恶意」均可换算为 `Reclaimed Malevolence`。0.5.0 起词库主源切换为国服官方简体中文：`lib/i18n-stats-zh.js` 全量重构建 18204 条词缀，以国服 `poe.game.qq.com/api/trade/data/stats` 为唯一主源、按 stat id 与国际服英文骨架对齐，台服繁转简仅补国服缺口；`lib/i18n-dict.js` 新增 STATIC 补充层 1214 条固定专名的「英文全名 → 简中」映射（`Chaos Orb → 混沌石`、`Orb of Fusing → 链结石`、`Mirror of Kalandra → 卡兰德的魔镜`），此前内置只以 `chaos` / `fusing` 这类短键收录，英文原文查不到简中；`#` 占位数量与内置模板不一致的 18 条保留内置，避免数值回填错位。新旧词库对比零丢失、零改动，远端热修通道同步更新（`config/i18n-stats-zh.json`、`config/i18n-zh.json`，`remote.json` 中 `i18n.version` 升至 4），后续赛季补词仍无需发版）
 
 ---
 
@@ -37,6 +37,7 @@ AIGC:
 | 物品名双语与中文检索（0.3.7） | 新增 4010 条基底/物品类型与 1241 条物品名中文词库（按官方数据 id 对齐，基底 85.6%、名称 84.5% 覆盖）。结果区的物品名与基底名改为「中文（English 原文）」双语展示，中文与英文同时保留可读；搜索时输入中文物品名（如「绞杀之息」「黑曜护身符」）在提交前被换算为官网英文原文再发出，`whisper`、`type` 枚举、复制内容与查询 JSON 中的机器值始终为英文原文 |
 | 搜索框中文模糊检索（0.3.9） | 中文检索不再要求完整输入：前缀与子串都可命中（「女王的饥」→「女王的饥饿」→ `The Queen's Hunger`），候选浮层按「中文（English 原文）」展示，点选后只往输入框填英文原文并派发 `input`/`change`，交给官网原生逻辑提交，查询值始终为英文；组件实例拿不到或 `filter` patch 失败时改用自绘浮层兜底，不依赖 multiselect 内部实现；中文输入法组合期不介入，纯英文输入原样透传，候选按分数排序并过滤机器标识，不产出半中半英 |
 | 词库简中主源切换（0.5.0） | 词缀与固定专名统一以国服 `poe.game.qq.com` 官方简中为主源：词缀词库全量重构建 **18204 条**（台服繁转简只补国服缺口，术语覆盖表修正「咒术→魔蛊」「神殿→神龛」「召唤物→召唤生物」等台服用语）；新增 STATIC 补充层 **1214 条**英文全名→简中的固定专名（通货、碎片、圣甲虫、纹章等），解决「英文原文查不到简中」的整类缺口；`#` 占位数量与内置模板不一致的条目保留内置，数值回填不出错；远端热修通道同步更新，扩词不必发版 |
+| 物品词库暗金名（0.5.1） | `lib/i18n-items-zh.js` 补齐暗金（unique）名中文对照：items 的 `name` 条目 1241 → **1433 条**，新增 192 条（「再造恶意 → Reclaimed Malevolence」「无尽贪婪 → Greed's Embrace」等）。暗金名只存在于官方 `items` 接口的 `name` 字段（`flags.unique`），不在 `stats` 里，因此 v0.5.0 之前搜暗金名一律零命中。本轮以「基底 type 中英表」为锚点把国服简中 unique 名对齐国际服英文名，并用旧词库 1241 条对照做一致率校验（**99.8%**），只写回通过校验的条目、不产出猜测映射；回读验证「再造恶意」「再造」「恶意」三个输入均换算为 `Reclaimed Malevolence`。词库属内置文件，中文换算索引只读内置词库，需刷新扩展与市集页后生效 |
 | 中文检索输入镜像（0.4.1） | 中文检索不再依赖官网下拉候选数量与 Vue 组件实例，改为「输入镜像」：输入含 CJK 且词库命中时，唯一强匹配在输入静止 360ms 后换算为英文原文填入并派发 input/change，官网原生过滤随即命中；多候选弹自绘浮层列「中文（English）」由用户点选，选中填英文原文。输入框保留 `data-ptc-query-zh`、title 与「中文检索：中文 → 英文」提示条，提交值恒为英文；纯英文输入零干预、输入法组合期零介入；控制台与诊断页输出逐次日志（输入值 / 命中数 / 替换值 / usedVm） |
 | 挑战页误判修复与启动自检（0.4.0） | v0.3.8 为躲 Cloudflare 卡死，把 `script[src*=challenge-platform]`、`window._cf_chl_opt`、标题含「安全验证 / Just a moment」都当成挑战页凭据；这些痕迹在正常交易页同样常驻，导致桥接与汉化在正常页被整体停用（中文检索、汉化全失效）。0.4.0 收紧判定：只认 `/cdn-cgi/` 跳转、`#challenge-form`、`#cf-challenge-running`，或「标题是验证页句式 **且** 页面无 PoE 应用根节点」；判定为挑战页时仅临时卸载 hook，巡检发现挑战消失且应用根出现后自动重装，用户无需重开页面。同时新增启动自检：控制台打印 `[PTC v0.4.0] inject/bridge/localizer ...` 摘要，`window.__PTC_STATUS__` 与 `documentElement[data-ptc-status]` 记录版本、各脚本 started、词库/反向索引条数、hooks 安装状态与 abortReason，侧栏「诊断」页显示运行版本与中止原因 |
 | 桥接诊断（0.3.9） | 侧栏新增「诊断」Tab：显示桥接版本、词库条数、反向索引条数、精确枚举条数、物品词库条数，以及最近一次输入原文 / 命中候选数 / 已提交的「中文 → English」映射，并提供刷新按钮，便于自查中文检索未命中时是词库缺失还是浮层未生效 |
@@ -48,7 +49,7 @@ AIGC:
 
 ## 2. 安装（加载已解压扩展）
 
-1. 解压 `poe-trade-companion-v0.5.0.zip`（或直接使用 `poe-trade-companion/` 目录，zip 内顶层目录为 `poe-trade-companion/`）。
+1. 解压 `poe-trade-companion-v0.5.1.zip`（或直接使用 `poe-trade-companion/` 目录，zip 内顶层目录为 `poe-trade-companion/`）。
 2. Chrome 打开 `chrome://extensions/`（Edge 为 `edge://extensions/`）。
 3. 打开右上角 **开发者模式**。
 4. 点击 **加载已解压的扩展程序**，选择解压出的 `poe-trade-companion` 目录（含 `manifest.json` 的那一层）。
@@ -436,6 +437,7 @@ poe-trade-companion/
 
 | 版本 | 日期 | 说明 |
 | --- | --- | --- |
+| 0.5.1 | 2026-11-27 | 物品词库补齐暗金名映射：`lib/i18n-items-zh.js` 的 items `name` 条目 **1241 → 1433**（新增 192 条）。暗金名仅存在于官方 `items` 接口 `name` 字段、不在 `stats`，此前中文搜「再造恶意」零命中；以基底 type 中英表为锚点对齐国服/国际服 unique 名，旧词库 1241 条做一致率校验 **99.8%**，仅写回通过校验项；回读「再造恶意」「再造」「恶意」均换算为 `Reclaimed Malevolence`；`manifest.json` / `config/i18n-zh.json` / `lib/i18n-dict.js` 版本串升至 0.5.1，`config/remote.json` notice 同步；词库为内置文件，需重载扩展生效 |
 | 0.5.0 | 2026-11-27 | 词库主源切换为国服官方简体中文：`lib/i18n-stats-zh.js` 重构建 **18204 条**词缀（国服 `/api/trade/data/stats` 为主源，按 stat id 对齐国际服英文骨架，台服繁转简仅补缺口，术语覆盖表修正台服用语；`_meta.version=2`）；`lib/i18n-dict.js` 追加 STATIC 补充层 **1214 条**英文全名→简中专名映射（原先内置仅以 `chaos`/`fusing` 等短键收录，英文原文命中率 0）；`config/i18n-stats-zh.json` 与 `config/i18n-zh.json`（static 段 34→1248 条）同步，`remote.json` 的 `i18n.version` 升至 4 走热修通道；自测：新旧 fullDict 对比 4801→6015 条、新增 1214、丢失 0、改动 0，uiDict 同步 4598→5812，全部 js `node --check` 通过，manifest/remote/i18n 配置 JSON 全部解析通过 |
 | 0.3.9 | 2026-11-25 | 筛选搜索框中文检索真正可用：`search-bridge.js` 新增 `zhScore` 打分（精确 1000 / 前缀 720 / 子串 420 / 反向包含 260·160）与 `zhLookup` 跨物品、筛选、通用三套词库聚合候选，中文按前缀与子串模糊匹配（「女王的饥」命中「女王的饥饿」），反向包含要求键 ≥2 字且多打字数 ≤6，避免长串被单字键（如「的」）误命中产出垃圾候选；候选以「中文（English 原文）」渲染于自绘浮层（不依赖 multiselect 实例），点选后只填英文原文并派发 `input` + `change`，提交值仍为官网英文枚举；组合期零介入、纯英文输入不触发浮层也不改写、`option.id` / `type` / `~price` 等机器值不动；侧栏新增「诊断」Tab（版本 / 词库 / 反向索引 / 精确枚举 / 物品词库条数 / 最近输入与命中数 / 最近提交映射）+ 刷新按钮，快照经 `data-ptc-diag` 属性跨 world 传给侧栏；自测 bridge 40 项、诊断页 16 项、诊断链路 8 项、物品词库 46 项全绿，IME 与 v0.3.5 旧断言 3 + 5 项因「零候选取浮层替代直接改写」的既定行为变更而按预期差异处理 |
 | 0.3.8 | 2026-11-25 | 修复安装后访问官网卡在 Cloudflare「正在进行安全验证」：`manifest.matches` 严格限定 `https://www.pathofexile.com/trade*`，人机验证页三脚本入口守门零注入；`inject.js` 的 fetch/XHR hook 改为惰性安装（页面解析后再挂载），非交易接口原样透传，hook 内异常立即 `restoreNative`；安全套 29/29、items 46/46、v034-ship 36/36、IME 27/27 通过 |

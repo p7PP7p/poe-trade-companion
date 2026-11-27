@@ -1,7 +1,7 @@
 {
   "_meta": {
     "name": "PoE Trade Companion 汉化词库",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "schemaVersion": 2,
     "note": "分层结构：ui/category/static/terms/ui_gap/supplement 为精确词条，patterns 为句式模板（p 正则，r 替换模板，$1/$2 为参数占位，r 以 ! 开头表示允许保留英文实体名）",
     "counts": {
