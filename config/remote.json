@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "minExtensionVersion": "0.2.0",
-  "updatedAt": "2026-11-24",
+  "updatedAt": "2026-11-27",
   "selectors": {
     "resultRow": [
       ".resultset",
@@ -35,12 +35,12 @@
     "searchPath": "/api/trade/search/",
     "fetchPath": "/api/trade/fetch/"
   },
-  "notice": "2026-11-24 已适配 Covens 赛季：市集选择器与交易接口路径保持有效。",
+  "notice": "2026-11-27 v0.5.0：词缀与固定专名词库切换为国服官方简中主源（18204 条词缀 / 1214 条专名），远端热修继续生效。",
   "league": "Covens",
   "leagueAliases": {},
   "i18n": {
     "dictUrl": "https://raw.githubusercontent.com/p7PP7p/poe-trade-companion/main/config/i18n-zh.json",
     "statsUrl": "https://raw.githubusercontent.com/p7PP7p/poe-trade-companion/main/config/i18n-stats-zh.json",
-    "version": 3
+    "version": 4
   }
 }
